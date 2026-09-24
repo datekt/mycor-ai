@@ -1,0 +1,23 @@
+name: Welcome Issue
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Welcome comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '👋 Спасибо, что развиваете проект MYCOR! Если вы хотите поделиться своим уникальным файлом обученного характера `history.json`, пожалуйста, прикрепите его прямо в этот тред, чтобы другие участники могли его протестировать.'
+            })
