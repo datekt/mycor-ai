@@ -31,14 +31,23 @@ func ImportTxtFile(filePath string, brainPath string) error {
 
 	fmt.Printf("📖 Найдено %d строк. Начинаю пакетное сканирование...\n", len(lines))
 
-	engine.SaveBackup()
+	totalLoss := 0.0
+	trained := 0
 	for i := 0; i < len(lines)-1; i++ {
-		engine.TrainBatch(lines[i], lines[i+1])
+		loss := engine.TrainBatch(lines[i], lines[i+1])
+		totalLoss += loss
+		trained++
 		if i%100 == 0 && i > 0 {
 			fmt.Printf("⚡ Обработано %d строк...\n", i)
 		}
 	}
 
-	engine.SaveBrain(brainPath)
+	if err := engine.SaveBrain(brainPath); err != nil {
+		return err
+	}
+
+	if trained > 0 {
+		fmt.Printf("📉 Средняя ошибка: %.4f\n", totalLoss/float64(trained))
+	}
 	return nil
 }
