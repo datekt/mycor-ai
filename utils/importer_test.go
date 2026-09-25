@@ -67,3 +67,25 @@ func TestImportTxtFileSingleLine(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 }
+
+func TestImportTxtFilePersistsBrain(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "input.txt")
+	if err := os.WriteFile(src, []byte("a b\nc d\ne f\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	brain := filepath.Join(dir, "brain.json")
+	engine.InitEngine()
+	if err := ImportTxtFile(src, brain); err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	vocab := len(engine.Vocabulary)
+
+	engine.InitEngine()
+	if !engine.LoadBrain(brain) {
+		t.Fatal("reload failed")
+	}
+	if len(engine.Vocabulary) != vocab {
+		t.Errorf("vocab after reload = %d, want %d", len(engine.Vocabulary), vocab)
+	}
+}
