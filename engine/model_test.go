@@ -153,7 +153,9 @@ func TestSaveLoadBrain(t *testing.T) {
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "brain.json")
-	SaveBrain(path)
+	if err := SaveBrain(path); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
 
 	vocabBefore := len(Vocabulary)
 	paramsBefore := CountParameters()
@@ -167,6 +169,26 @@ func TestSaveLoadBrain(t *testing.T) {
 	}
 	if CountParameters() != paramsBefore {
 		t.Errorf("params = %d, want %d", CountParameters(), paramsBefore)
+	}
+}
+
+func TestSaveLoadBrainPersistsVelocity(t *testing.T) {
+	InitEngine()
+	Train("a", "b")
+	Train("a", "b")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "brain.json")
+	if err := SaveBrain(path); err != nil {
+		t.Fatal(err)
+	}
+
+	InitEngine()
+	if !LoadBrain(path) {
+		t.Fatal("load failed")
+	}
+	if len(Velocity) == 0 {
+		t.Error("velocity should be restored")
 	}
 }
 
@@ -189,6 +211,18 @@ func TestLoadBrainEmptyVocabulary(t *testing.T) {
 	}
 	if LoadBrain(path) {
 		t.Error("expected failure on empty vocabulary")
+	}
+}
+
+func TestLoadBrainDuplicateWord(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "brain.json")
+	data := `{"vocabulary":["<unk>","a","a"],"weights":{}}`
+	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if LoadBrain(path) {
+		t.Error("expected failure on duplicate word")
 	}
 }
 
@@ -223,6 +257,9 @@ func TestLoadBrainRealignsWeights(t *testing.T) {
 	w := Weights["<unk> a"]
 	if len(w) != 3 {
 		t.Errorf("weight len = %d, want 3", len(w))
+	}
+	if len(Velocity["<unk> a"]) != 3 {
+		t.Errorf("velocity len = %d, want 3", len(Velocity["<unk> a"]))
 	}
 }
 
@@ -267,5 +304,42 @@ func TestRecentContexts(t *testing.T) {
 				t.Errorf("duplicate context in recent list: %q", got[i])
 			}
 		}
+	}
+}
+
+func TestSessionHistoryReset(t *testing.T) {
+	InitEngine()
+	AppendHistory("user", "привет")
+	AppendHistory("ai", "мир")
+	if len(SessionHistory()) != 2 {
+		t.Fatalf("session history len = %d, want 2", len(SessionHistory()))
+	}
+	InitEngine()
+	if len(SessionHistory()) != 0 {
+		t.Error("session history should reset on InitEngine")
+	}
+}
+
+func TestSessionHistorySurvivesLoadBrain(t *testing.T) {
+	InitEngine()
+	Train("a", "b")
+	AppendHistory("user", "a")
+	AppendHistory("ai", "b")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "brain.json")
+	if err := SaveBrain(path); err != nil {
+		t.Fatal(err)
+	}
+
+	InitEngine()
+	if !LoadBrain(path) {
+		t.Fatal("load failed")
+	}
+	if len(SessionHistory()) != 0 {
+		t.Error("session history should reset after LoadBrain")
+	}
+	if len(Vocabulary) < 3 {
+		t.Error("vocabulary should be restored after LoadBrain")
 	}
 }
