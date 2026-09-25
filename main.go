@@ -14,25 +14,34 @@ import (
 const brainFile = "history.json"
 
 func printHelp() {
-	fmt.Println("\n🎛️ ПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.1:")
-	fmt.Println("  /help           - Показать этот список команд")
-	fmt.Println("  /stats          - Посмотреть топ связей в синапсах")
-	fmt.Println("  /undo           - Отменить последнее обучение")
-	fmt.Println("  /reset          - Стереть память и начать заново")
-	fmt.Println("  /temp [0.1-1.5] - Изменить креативность (сейчас:", config.Temperature, ")")
-	fmt.Println("  /lr [0.01-1.0]  - Изменить скорость обучения (сейчас:", config.LearningRate, ")")
-	fmt.Println("  /import [файл]  - Пакетное обучение из TXT (например: /import book.txt)")
-	fmt.Println("  /self           - Режим автономного разговора ИИ с самим собой")
-	fmt.Println("  exit            - Выйти из программы")
+	fmt.Println("\n🎛️ ПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.2:")
+	fmt.Println("  /help              - Показать этот список команд")
+	fmt.Println("  /stats             - Посмотреть топ связей в синапсах")
+	fmt.Println("  /history           - Показать историю текущей сессии")
+	fmt.Println("  /undo              - Отменить последнее обучение")
+	fmt.Println("  /reset             - Стереть память и начать заново")
+	fmt.Println("  /temp [0.1-1.5]    - Изменить креативность (сейчас:", config.Temperature, ")")
+	fmt.Println("  /lr [0.01-1.0]     - Изменить скорость обучения (сейчас:", config.LearningRate, ")")
+	fmt.Println("  /momentum [0-0.99] - Инерция градиента (сейчас:", config.Momentum, ")")
+	fmt.Println("  /import [файл]     - Пакетное обучение из TXT (например: /import book.txt)")
+	fmt.Println("  /self              - Режим автономного разговора ИИ с самим собой")
+	fmt.Println("  exit               - Выйти из программы")
+}
+
+func saveOrWarn() {
+	if err := engine.SaveBrain(brainFile); err != nil {
+		fmt.Println("❌ Ошибка сохранения памяти:", err)
+	}
 }
 
 func main() {
 	engine.InitEngine()
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("🧠 Проверка архитектуры MYCOR v4.1 Ultra...")
+	fmt.Println("🧠 Проверка архитектуры MYCOR v4.2 Ultra...")
 	if engine.LoadBrain(brainFile) {
 		fmt.Printf("💾 Мозг загружен! Слов в базе: %d | Синапсов: %d параметров\n", len(engine.Vocabulary), engine.CountParameters())
+		fmt.Println("🆕 История сессии пуста. Обучение сохранено на диск.")
 	} else {
 		fmt.Println("👶 Мозг пуст. Готов к первому ручному или пакетному обучению.")
 	}
@@ -43,13 +52,13 @@ func main() {
 		fmt.Print("\nВы: ")
 		userInput, err := reader.ReadString('\n')
 		if err != nil {
-			engine.SaveBrain(brainFile)
+			saveOrWarn()
 			break
 		}
 		userInput = strings.TrimSpace(userInput)
 
 		if userInput == "exit" {
-			engine.SaveBrain(brainFile)
+			saveOrWarn()
 			break
 		}
 
@@ -58,10 +67,20 @@ func main() {
 			switch parts[0] {
 			case "/help":
 				printHelp()
+			case "/history":
+				history := engine.SessionHistory()
+				if len(history) == 0 {
+					fmt.Println("📭 История текущей сессии пуста (она сбрасывается при перезапуске).")
+				} else {
+					fmt.Printf("📜 История сессии (%d сообщений):\n", len(history))
+					for _, m := range history {
+						fmt.Printf("  [%s] %s\n", m.Role, m.Text)
+					}
+				}
 			case "/undo":
 				if engine.UndoLastTrain() {
 					fmt.Println("↩️ Предыдущий урок успешно стерт из памяти.")
-					engine.SaveBrain(brainFile)
+					saveOrWarn()
 				} else {
 					fmt.Println("❌ Нечего отменять.")
 				}
@@ -96,6 +115,18 @@ func main() {
 				}
 				config.LearningRate = val
 				fmt.Println("⚡ Скорость обучения установлена:", val)
+			case "/momentum":
+				if len(parts) < 2 {
+					fmt.Println("Укажите значение, например: /momentum 0.9")
+					break
+				}
+				val, err := strconv.ParseFloat(parts[1], 64)
+				if err != nil || val < 0.0 || val > 0.99 {
+					fmt.Println("❌ Недопустимое значение. Диапазон: 0.0 - 0.99")
+					break
+				}
+				config.Momentum = val
+				fmt.Println("🌀 Инерция градиента установлена:", val)
 			case "/import":
 				if len(parts) > 1 {
 					fmt.Println("⏳ Чтение файла...")
@@ -144,16 +175,20 @@ func main() {
 			continue
 		}
 
+		engine.AppendHistory("Вы", userInput)
+
 		aiOutput := engine.GenerateResponse(userInput, 15)
 		fmt.Printf("ИИ MYCOR: %s\n", aiOutput)
+		engine.AppendHistory("ИИ", aiOutput)
 
 		fmt.Print("Как нужно было ответить? (Оставьте пустым для пропуска): ")
 		correctAnswer, _ := reader.ReadString('\n')
 		correctAnswer = strings.TrimSpace(correctAnswer)
 
 		if correctAnswer != "" {
+			engine.AppendHistory("Учитель", correctAnswer)
 			loss := engine.Train(userInput, correctAnswer)
-			engine.SaveBrain(brainFile)
+			saveOrWarn()
 			fmt.Printf("📉 Урок усвоен! Ошибка сети (Loss): %.4f | Параметров: %d\n", loss, engine.CountParameters())
 		}
 	}
