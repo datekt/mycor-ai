@@ -1,3 +1,3 @@
 module mycor
 
-go 1.27
+go 1.27.1
