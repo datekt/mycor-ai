@@ -343,3 +343,84 @@ func TestSessionHistorySurvivesLoadBrain(t *testing.T) {
 		t.Error("vocabulary should be restored after LoadBrain")
 	}
 }
+
+func TestThinkRequiresVocabulary(t *testing.T) {
+	InitEngine()
+	Train("a", "b")
+	if got := Think("a"); len(got) != 0 {
+		t.Errorf("think should be empty with small vocab, got %v", got)
+	}
+	if LastThoughts() != "" {
+		t.Errorf("LastThoughts should be empty, got %q", LastThoughts())
+	}
+}
+
+func TestThinkAfterEnoughTraining(t *testing.T) {
+	InitEngine()
+	pairs := [][2]string{
+		{"один", "два"},
+		{"три", "четыре"},
+		{"пять", "шесть"},
+		{"семь", "восемь"},
+		{"девять", "десять"},
+	}
+	for i := 0; i < 5; i++ {
+		for _, p := range pairs {
+			Train(p[0], p[1])
+		}
+	}
+	if len(Vocabulary) < MinVocabForThinking {
+		t.Fatalf("setup failed: vocab = %d", len(Vocabulary))
+	}
+	thoughts := Think("один")
+	if len(thoughts) == 0 {
+		t.Error("expected thoughts with large vocab")
+	}
+}
+
+func TestGenerateResponseWithThinking(t *testing.T) {
+	InitEngine()
+	pairs := [][2]string{
+		{"один", "два"},
+		{"три", "четыре"},
+		{"пять", "шесть"},
+		{"семь", "восемь"},
+		{"девять", "десять"},
+	}
+	for i := 0; i < 5; i++ {
+		for _, p := range pairs {
+			Train(p[0], p[1])
+		}
+	}
+	out := GenerateResponse("один", 5)
+	if out == "" {
+		t.Error("expected non-empty output")
+	}
+	if LastThoughts() == "" {
+		t.Error("expected non-empty thoughts after large training")
+	}
+}
+
+func TestThinkingResetOnInit(t *testing.T) {
+	InitEngine()
+	pairs := [][2]string{
+		{"один", "два"},
+		{"три", "четыре"},
+		{"пять", "шесть"},
+		{"семь", "восемь"},
+		{"девять", "десять"},
+	}
+	for i := 0; i < 5; i++ {
+		for _, p := range pairs {
+			Train(p[0], p[1])
+		}
+	}
+	GenerateResponse("один", 3)
+	if LastThoughts() == "" {
+		t.Fatal("expected thoughts to be populated")
+	}
+	InitEngine()
+	if LastThoughts() != "" {
+		t.Errorf("thoughts should reset, got %q", LastThoughts())
+	}
+}
