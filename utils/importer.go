@@ -49,5 +49,8 @@ func ImportTxtFile(filePath string, brainPath string) error {
 	if trained > 0 {
 		fmt.Printf("📉 Средняя ошибка: %.4f\n", totalLoss/float64(trained))
 	}
+	fmt.Printf("💭 Слов в словаре: %d (режим размышления: %v)\n",
+		len(engine.Vocabulary),
+		len(engine.Vocabulary) >= engine.MinVocabForThinking)
 	return nil
 }
