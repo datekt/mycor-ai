@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	unkToken     = "<unk>"
-	modelVersion = 2
+	unkToken            = "<unk>"
+	modelVersion        = 3
+	MinVocabForThinking = 10
+	thinkingSteps       = 4
 )
 
 type BrainModel struct {
@@ -42,6 +44,7 @@ var (
 
 	recentContexts []string
 	sessionHistory []ChatMessage
+	lastThoughts   string
 )
 
 const maxRecentContexts = 20
@@ -60,6 +63,7 @@ func InitEngine() {
 
 	recentContexts = nil
 	sessionHistory = nil
+	lastThoughts = ""
 }
 
 func Tokenize(text string) []string {
@@ -115,11 +119,22 @@ func RegisterWord(word string) int {
 	idx := len(Vocabulary) - 1
 	WordToIdx[word] = idx
 
-	for k := range Weights {
-		Weights[k] = append(Weights[k], initWeight())
+	for k, w := range Weights {
+		if len(w) < len(Vocabulary) {
+			extended := make([]float64, len(Vocabulary))
+			copy(extended, w)
+			for i := len(w); i < len(Vocabulary); i++ {
+				extended[i] = initWeight()
+			}
+			Weights[k] = extended
+		}
 	}
-	for k := range Velocity {
-		Velocity[k] = append(Velocity[k], 0)
+	for k, v := range Velocity {
+		if len(v) < len(Vocabulary) {
+			extended := make([]float64, len(Vocabulary))
+			copy(extended, v)
+			Velocity[k] = extended
+		}
 	}
 	return idx
 }
@@ -161,6 +176,10 @@ func AppendHistory(role, text string) {
 	if len(sessionHistory) > maxSessionHistory {
 		sessionHistory = sessionHistory[len(sessionHistory)-maxSessionHistory:]
 	}
+}
+
+func LastThoughts() string {
+	return lastThoughts
 }
 
 func SaveBackup() {
@@ -273,12 +292,46 @@ func ensureWeights(ctxKey string) ([]float64, []float64) {
 	return w, vel
 }
 
-func GenerateResponse(prompt string, maxLen int) string {
-	words := Tokenize(prompt)
-	if len(words) == 0 {
-		return "..."
+func sampleNextIndex(w1, w2 string, usedWords map[int]bool, temperature float64) (int, bool) {
+	ctxKey := MakeContextKey(w1, w2)
+	logits, exists := Weights[ctxKey]
+
+	if !exists || len(logits) == 0 {
+		ctxKey = MakeContextKey(unkToken, w2)
+		logits, exists = Weights[ctxKey]
+	}
+	if !exists || len(logits) == 0 {
+		ctxKey = MakeContextKey(w1, unkToken)
+		logits, exists = Weights[ctxKey]
+	}
+	if !exists || len(logits) == 0 {
+		return 0, false
 	}
 
+	touchContext(ctxKey)
+	probs := softmaxBase(logits, temperature, usedWords, config.RepetitionPenalty)
+	if len(probs) == 0 {
+		return 0, false
+	}
+
+	r := rand.Float64()
+	cumulative := 0.0
+	nextIdx := len(probs) - 1
+	for idx, p := range probs {
+		cumulative += p
+		if r <= cumulative {
+			nextIdx = idx
+			break
+		}
+	}
+
+	if nextIdx < 0 || nextIdx >= len(Vocabulary) {
+		return 0, false
+	}
+	return nextIdx, true
+}
+
+func initialContext(words []string) (string, string) {
 	var w1, w2 string
 	if len(words) >= 2 {
 		w1 = words[len(words)-2]
@@ -287,62 +340,100 @@ func GenerateResponse(prompt string, maxLen int) string {
 		w1 = unkToken
 		w2 = words[len(words)-1]
 	}
-
 	if _, ok := WordToIdx[w1]; !ok {
 		w1 = unkToken
 	}
 	if _, ok := WordToIdx[w2]; !ok {
 		w2 = unkToken
 	}
+	return w1, w2
+}
+
+func think(prompt string) []string {
+	if len(Vocabulary) < MinVocabForThinking {
+		return nil
+	}
+	words := Tokenize(prompt)
+	if len(words) == 0 {
+		return nil
+	}
+
+	w1, w2 := initialContext(words)
+	thoughts := make([]string, 0, thinkingSteps)
+	usedWords := make(map[int]bool)
+
+	for i := 0; i < thinkingSteps; i++ {
+		idx, ok := sampleNextIndex(w1, w2, usedWords, config.Temperature)
+		if !ok {
+			break
+		}
+		nextWord := Vocabulary[idx]
+		if nextWord == unkToken {
+			break
+		}
+		thoughts = append(thoughts, nextWord)
+		usedWords[idx] = true
+		if nextWord == "." || nextWord == "?" || nextWord == "!" {
+			break
+		}
+		w1, w2 = w2, nextWord
+	}
+	return thoughts
+}
+
+func Think(prompt string) []string {
+	return think(prompt)
+}
+
+func GenerateResponse(prompt string, maxLen int) string {
+	thoughts := think(prompt)
+	lastThoughts = JoinWords(thoughts)
+
+	effectivePrompt := prompt
+	if len(thoughts) > 0 {
+		effectivePrompt = prompt + " " + lastThoughts
+	}
+
+	return generate(effectivePrompt, maxLen)
+}
+
+func generate(prompt string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	words := Tokenize(prompt)
+	if len(words) == 0 {
+		return "..."
+	}
+
+	w1, w2 := initialContext(words)
 
 	result := make([]string, 0, maxLen)
 	usedWords := make(map[int]bool)
 
 	for i := 0; i < maxLen; i++ {
-		ctxKey := MakeContextKey(w1, w2)
-		logits, exists := Weights[ctxKey]
-
-		if !exists || len(logits) == 0 {
-			ctxKey = MakeContextKey(unkToken, w2)
-			logits, exists = Weights[ctxKey]
-		}
-		if !exists || len(logits) == 0 {
-			ctxKey = MakeContextKey(w1, unkToken)
-			logits, exists = Weights[ctxKey]
-		}
-
-		if !exists || len(logits) == 0 {
+		idx, ok := sampleNextIndex(w1, w2, usedWords, config.Temperature)
+		if !ok {
 			if len(Vocabulary) > 1 {
-				nextWord := Vocabulary[rand.Intn(len(Vocabulary)-1)+1]
+				pick := rand.Intn(len(Vocabulary)-1) + 1
+				nextWord := Vocabulary[pick]
+				if nextWord == unkToken {
+					continue
+				}
 				result = append(result, nextWord)
-				usedWords[WordToIdx[nextWord]] = true
+				usedWords[pick] = true
 				w1, w2 = w2, nextWord
 				continue
 			}
 			break
 		}
 
-		touchContext(ctxKey)
-		probs := softmaxBase(logits, config.Temperature, usedWords, config.RepetitionPenalty)
-
-		r := rand.Float64()
-		cumulative := 0.0
-		nextIdx := len(probs) - 1
-		for idx, p := range probs {
-			cumulative += p
-			if r <= cumulative {
-				nextIdx = idx
-				break
-			}
+		nextWord := Vocabulary[idx]
+		if nextWord == unkToken {
+			continue
 		}
-
-		if nextIdx >= len(Vocabulary) || nextIdx < 0 {
-			break
-		}
-
-		nextWord := Vocabulary[nextIdx]
 		result = append(result, nextWord)
-		usedWords[nextIdx] = true
+		usedWords[idx] = true
 
 		if nextWord == "." || nextWord == "?" || nextWord == "!" {
 			break
@@ -377,15 +468,6 @@ func train(prompt, target string) float64 {
 		RegisterWord(w)
 	}
 
-	var w1, w2 string
-	if len(promptWords) >= 2 {
-		w1 = promptWords[len(promptWords)-2]
-		w2 = promptWords[len(promptWords)-1]
-	} else {
-		w1 = unkToken
-		w2 = promptWords[len(promptWords)-1]
-	}
-
 	totalLoss := 0.0
 	steps := 0.0
 	lr := config.LearningRate
@@ -398,12 +480,11 @@ func train(prompt, target string) float64 {
 		momentum = 0.99
 	}
 
-	for _, nextWord := range targetWords {
-		targetIdx, ok := WordToIdx[nextWord]
+	trainStep := func(ctxKey string, targetWord string) {
+		targetIdx, ok := WordToIdx[targetWord]
 		if !ok {
-			continue
+			return
 		}
-		ctxKey := MakeContextKey(w1, w2)
 		touchContext(ctxKey)
 
 		weights, vel := ensureWeights(ctxKey)
@@ -427,7 +508,15 @@ func train(prompt, target string) float64 {
 			vel[i] = momentum*vel[i] + (1.0-momentum)*grad
 			weights[i] = weights[i]*decay + lr*vel[i]
 		}
+	}
 
+	if len(promptWords) >= 2 {
+		trainStep(MakeContextKey(unkToken, promptWords[0]), promptWords[1])
+	}
+
+	w1, w2 := initialContext(promptWords)
+	for _, nextWord := range targetWords {
+		trainStep(MakeContextKey(w1, w2), nextWord)
 		w1, w2 = w2, nextWord
 	}
 
@@ -482,7 +571,7 @@ func loadBrain(path string) error {
 		for k, v := range loaded.Weights {
 			extended := make([]float64, len(v)+1)
 			copy(extended[1:], v)
-			extended[0] = initWeight()
+			extended[0] = 0
 			loaded.Weights[k] = extended
 		}
 		if loaded.Velocity != nil {
@@ -542,6 +631,7 @@ func loadBrain(path string) error {
 	BackupVelocity = nil
 	recentContexts = nil
 	sessionHistory = nil
+	lastThoughts = ""
 	return nil
 }
 
