@@ -14,7 +14,7 @@ import (
 const brainFile = "history.json"
 
 func printHelp() {
-	fmt.Println("\n🎛️ ПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.2:")
+	fmt.Println("\n🎛️ ПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.3:")
 	fmt.Println("  /help              - Показать этот список команд")
 	fmt.Println("  /stats             - Посмотреть топ связей в синапсах")
 	fmt.Println("  /history           - Показать историю текущей сессии")
@@ -26,6 +26,7 @@ func printHelp() {
 	fmt.Println("  /import [файл]     - Пакетное обучение из TXT (например: /import book.txt)")
 	fmt.Println("  /self              - Режим автономного разговора ИИ с самим собой")
 	fmt.Println("  exit               - Выйти из программы")
+	fmt.Println("\n💭 Режим размышления включается автоматически при словаре ≥ 10 слов.")
 }
 
 func saveOrWarn() {
@@ -38,9 +39,12 @@ func main() {
 	engine.InitEngine()
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("🧠 Проверка архитектуры MYCOR v4.2 Ultra...")
+	fmt.Println("🧠 Проверка архитектуры MYCOR v4.3 Ultra...")
 	if engine.LoadBrain(brainFile) {
 		fmt.Printf("💾 Мозг загружен! Слов в базе: %d | Синапсов: %d параметров\n", len(engine.Vocabulary), engine.CountParameters())
+		if len(engine.Vocabulary) >= engine.MinVocabForThinking {
+			fmt.Println("💭 Словарь достаточен для режима размышления.")
+		}
 		fmt.Println("🆕 История сессии пуста. Обучение сохранено на диск.")
 	} else {
 		fmt.Println("👶 Мозг пуст. Готов к первому ручному или пакетному обучению.")
@@ -141,6 +145,11 @@ func main() {
 				}
 			case "/stats":
 				fmt.Printf("📊 Статистика: Слова в словаре = %d, Всего параметров весов = %d\n", len(engine.Vocabulary), engine.CountParameters())
+				if len(engine.Vocabulary) >= engine.MinVocabForThinking {
+					fmt.Println("💭 Режим размышления: АКТИВЕН")
+				} else {
+					fmt.Printf("💭 Режим размышления: выключен (нужно ≥ %d слов, сейчас %d)\n", engine.MinVocabForThinking, len(engine.Vocabulary))
+				}
 				recent := engine.RecentContexts()
 				fmt.Println("Последние активные контекстные зоны:")
 				if len(recent) == 0 {
@@ -161,6 +170,9 @@ func main() {
 				currentPrompt := "Привет"
 				for i := 0; i < 10; i++ {
 					reply := engine.GenerateResponse(currentPrompt, 8)
+					if thoughts := engine.LastThoughts(); thoughts != "" {
+						fmt.Printf("💭 Мысли: %s\n", thoughts)
+					}
 					if reply == "" || reply == "..." {
 						reply = "что ты думаешь ?"
 					}
@@ -178,6 +190,11 @@ func main() {
 		engine.AppendHistory("Вы", userInput)
 
 		aiOutput := engine.GenerateResponse(userInput, 15)
+
+		if thoughts := engine.LastThoughts(); thoughts != "" {
+			fmt.Printf("💭 Мысли MYCOR: %s\n", thoughts)
+		}
+
 		fmt.Printf("ИИ MYCOR: %s\n", aiOutput)
 		engine.AppendHistory("ИИ", aiOutput)
 
