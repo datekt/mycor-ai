@@ -89,3 +89,24 @@ func TestImportTxtFilePersistsBrain(t *testing.T) {
 		t.Errorf("vocab after reload = %d, want %d", len(engine.Vocabulary), vocab)
 	}
 }
+
+func TestImportEnablesThinking(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "book.txt")
+	content := "один два\nтри четыре\nпять шесть\nсемь восемь\nдевять десять\n"
+	if err := os.WriteFile(src, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	brain := filepath.Join(dir, "brain.json")
+	engine.InitEngine()
+	if err := ImportTxtFile(src, brain); err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+	if len(engine.Vocabulary) < engine.MinVocabForThinking {
+		t.Fatalf("vocab = %d, want >= %d", len(engine.Vocabulary), engine.MinVocabForThinking)
+	}
+	thoughts := engine.Think("один")
+	if len(thoughts) == 0 {
+		t.Error("expected non-empty thoughts after bulk import")
+	}
+}
