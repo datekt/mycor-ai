@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/mycor-banner.png" alt="MYCOR AI Banner" width="100%">
+  <img src="assets/mycor-banner.jpeg" alt="MYCOR AI Banner" width="100%">
 </p>
 
 # 🧠 MYCOR (Mycor) — v4.4
