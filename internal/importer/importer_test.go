@@ -1,11 +1,11 @@
-package utils
+package importer
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"mycor/engine"
+	"mycor/internal/engine"
 )
 
 func TestImportTxtFile(t *testing.T) {

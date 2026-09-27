@@ -1,11 +1,19 @@
-package utils
+/*
+Package importer provides bulk training from plain text files.
+
+Each pair of consecutive non-empty lines is treated as a (prompt, target)
+training example and passed to the engine with TrainBatch. No backup is
+created, so /undo cannot reverse a batch import.
+*/
+package importer
 
 import (
 	"bufio"
 	"fmt"
-	"mycor/engine"
 	"os"
 	"strings"
+
+	"mycor/internal/engine"
 )
 
 func ImportTxtFile(filePath string, brainPath string) error {
@@ -29,7 +37,7 @@ func ImportTxtFile(filePath string, brainPath string) error {
 		return err
 	}
 
-	fmt.Printf("📖 Найдено %d строк. Начинаю пакетное сканирование...\n", len(lines))
+	fmt.Printf("Reading %d lines. Starting batch scan...\n", len(lines))
 
 	totalLoss := 0.0
 	trained := 0
@@ -38,7 +46,7 @@ func ImportTxtFile(filePath string, brainPath string) error {
 		totalLoss += loss
 		trained++
 		if i%100 == 0 && i > 0 {
-			fmt.Printf("⚡ Обработано %d строк...\n", i)
+			fmt.Printf("Processed %d lines...\n", i)
 		}
 	}
 
@@ -47,9 +55,9 @@ func ImportTxtFile(filePath string, brainPath string) error {
 	}
 
 	if trained > 0 {
-		fmt.Printf("📉 Средняя ошибка: %.4f\n", totalLoss/float64(trained))
+		fmt.Printf("Average loss: %.4f\n", totalLoss/float64(trained))
 	}
-	fmt.Printf("💭 Слов в словаре: %d (режим размышления: %v)\n",
+	fmt.Printf("Vocabulary size: %d (thinking mode: %v)\n",
 		len(engine.Vocabulary),
 		len(engine.Vocabulary) >= engine.MinVocabForThinking)
 	return nil
