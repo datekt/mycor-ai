@@ -33,7 +33,7 @@ func think(prompt string) []string {
 
 	w1, w2 := initialContext(words)
 	thoughts := make([]string, 0, thinkingSteps)
-	usedWords := make(map[int]bool)
+	usedWords := map[int]bool{0: true}
 
 	for i := 0; i < thinkingSteps; i++ {
 		idx, ok := sampleNextIndex(w1, w2, usedWords, config.Temperature)

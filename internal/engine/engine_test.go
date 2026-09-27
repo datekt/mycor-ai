@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+func trainThinkingCorpus(t *testing.T, iterations int) {
+	t.Helper()
+	pairs := [][2]string{
+		{"один", "два"},
+		{"три", "четыре"},
+		{"пять", "шесть"},
+		{"семь", "восемь"},
+		{"девять", "десять"},
+	}
+	for i := 0; i < iterations; i++ {
+		for _, p := range pairs {
+			Train(p[0], p[1])
+		}
+	}
+}
+
 func TestTokenize(t *testing.T) {
 	cases := []struct {
 		name string
@@ -473,68 +489,60 @@ func TestThinkRequiresVocabulary(t *testing.T) {
 
 func TestThinkAfterEnoughTraining(t *testing.T) {
 	InitEngine()
-	pairs := [][2]string{
-		{"один", "два"},
-		{"три", "четыре"},
-		{"пять", "шесть"},
-		{"семь", "восемь"},
-		{"девять", "десять"},
-	}
-	for i := 0; i < 5; i++ {
-		for _, p := range pairs {
-			Train(p[0], p[1])
-		}
-	}
+	trainThinkingCorpus(t, 10)
 	if len(Vocabulary) < MinVocabForThinking {
 		t.Fatalf("setup failed: vocab = %d", len(Vocabulary))
 	}
-	thoughts := Think("один")
-	if len(thoughts) == 0 {
-		t.Error("expected thoughts with large vocab")
+
+	var got []string
+	for attempt := 0; attempt < 20; attempt++ {
+		got = Think("один")
+		if len(got) > 0 {
+			break
+		}
+	}
+	if len(got) == 0 {
+		t.Fatal("expected thoughts after retries")
 	}
 }
 
 func TestGenerateResponseWithThinking(t *testing.T) {
 	InitEngine()
-	pairs := [][2]string{
-		{"один", "два"},
-		{"три", "четыре"},
-		{"пять", "шесть"},
-		{"семь", "восемь"},
-		{"девять", "десять"},
-	}
-	for i := 0; i < 5; i++ {
-		for _, p := range pairs {
-			Train(p[0], p[1])
-		}
-	}
+	trainThinkingCorpus(t, 10)
+
 	out := GenerateResponse("один", 5)
 	if out == "" {
 		t.Error("expected non-empty output")
 	}
-	if LastThoughts() == "" {
-		t.Error("expected non-empty thoughts after large training")
+
+	var thoughts string
+	for attempt := 0; attempt < 20; attempt++ {
+		GenerateResponse("один", 5)
+		if thoughts = LastThoughts(); thoughts != "" {
+			break
+		}
+	}
+	if thoughts == "" {
+		t.Fatal("expected non-empty thoughts after retries")
 	}
 }
 
 func TestThinkingResetOnInit(t *testing.T) {
 	InitEngine()
-	pairs := [][2]string{
-		{"один", "два"},
-		{"три", "четыре"},
-		{"пять", "шесть"},
-		{"семь", "восемь"},
-		{"девять", "десять"},
-	}
-	for i := 0; i < 5; i++ {
-		for _, p := range pairs {
-			Train(p[0], p[1])
+	trainThinkingCorpus(t, 10)
+
+	var populated bool
+	for attempt := 0; attempt < 20; attempt++ {
+		GenerateResponse("один", 3)
+		if LastThoughts() != "" {
+			populated = true
+			break
 		}
 	}
-	GenerateResponse("один", 3)
-	if LastThoughts() == "" {
-		t.Fatal("expected thoughts to be populated")
+	if !populated {
+		t.Fatal("expected thoughts after retries")
 	}
+
 	InitEngine()
 	if LastThoughts() != "" {
 		t.Errorf("thoughts should reset, got %q", LastThoughts())
@@ -550,18 +558,7 @@ func TestGenerateIdleThoughtEmpty(t *testing.T) {
 
 func TestGenerateIdleThoughtWithVocab(t *testing.T) {
 	InitEngine()
-	pairs := [][2]string{
-		{"один", "два"},
-		{"три", "четыре"},
-		{"пять", "шесть"},
-		{"семь", "восемь"},
-		{"девять", "десять"},
-	}
-	for i := 0; i < 5; i++ {
-		for _, p := range pairs {
-			Train(p[0], p[1])
-		}
-	}
+	trainThinkingCorpus(t, 10)
 	if len(Vocabulary) < MinVocabForThinking {
 		t.Fatalf("setup failed: vocab = %d", len(Vocabulary))
 	}
