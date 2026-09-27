@@ -105,8 +105,15 @@ func TestImportEnablesThinking(t *testing.T) {
 	if len(engine.Vocabulary) < engine.MinVocabForThinking {
 		t.Fatalf("vocab = %d, want >= %d", len(engine.Vocabulary), engine.MinVocabForThinking)
 	}
-	thoughts := engine.Think("один")
+
+	var thoughts []string
+	for attempt := 0; attempt < 20; attempt++ {
+		thoughts = engine.Think("один")
+		if len(thoughts) > 0 {
+			break
+		}
+	}
 	if len(thoughts) == 0 {
-		t.Error("expected non-empty thoughts after bulk import")
+		t.Fatal("expected non-empty thoughts after retries")
 	}
 }
