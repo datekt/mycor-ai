@@ -1,0 +1,12 @@
+{
+  "version": 3,
+  "vocabulary": ["hello", "world", ".", "!"],
+  "weights": {
+    "hello world": [0.1, 0.2, 0.05, 0.0],
+    "world .": [0.0, 0.1, 0.3, 0.05]
+  },
+  "velocity": {
+    "hello world": [0.01, 0.02, 0.005, 0.0],
+    "world .": [0.0, 0.01, 0.03, 0.005]
+  }
+}
