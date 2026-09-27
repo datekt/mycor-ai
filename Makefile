@@ -1,4 +1,4 @@
-.PHONY: build run test race cover lint vet fmt clean tidy
+.PHONY: build run test race cover lint check vet fmt clean tidy
 
 BINARY := bin/mycor
 MAIN   := ./cmd/mycor
@@ -18,6 +18,17 @@ race:
 cover:
 	go test ./... -coverprofile=cover.out
 	go tool cover -html=cover.out
+
+check:
+	@echo "Checking gofmt..."
+	@unformatted=$$(gofmt -s -l .); \
+	if [ -n "$$unformatted" ]; then \
+		echo "Unformatted files:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+	@echo "Running go vet..."
+	go vet ./...
 
 lint:
 	golangci-lint run
