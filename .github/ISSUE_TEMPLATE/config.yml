@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and discussions
+    url: https://github.com/datekt/MYCOR/discussions
+    about: Ask questions, share your trained brains, and chat about MYCOR.
+  - name: Security policy
+    url: https://github.com/datekt/MYCOR/blob/main/.github/SECURITY.md
+    about: Please report security vulnerabilities privately.

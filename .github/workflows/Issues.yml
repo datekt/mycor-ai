@@ -11,16 +11,13 @@ jobs:
   welcome:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
       - name: Welcome comment
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '👋 Спасибо, что развиваете проект MYCOR! Если вы хотите поделиться своим уникальным файлом обученного характера `history.json`, пожалуйста, прикрепите его прямо в этот тред, чтобы другие участники могли его протестировать.'
+              body: 'Thanks for contributing to MYCOR! If you want to share your own trained character file `history.json`, attach it directly in this thread so other people can test it.'
             })
