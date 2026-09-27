@@ -7,7 +7,7 @@ contribute code, docs, and bug reports.
 
 1. Fork the repository and clone your fork:
 
-       git clone https://github.com/<your-user>/MYCOR.git
+       git clone https://github.com/datekt/MYCOR.git
        cd MYCOR
 
 2. Make sure you have Go 1.27.1 or later:
