@@ -1,0 +1,92 @@
+package engine
+
+import (
+	"strings"
+)
+
+var emoticonList = []string{
+	":-)", ":-(", ":-d", ":-p", ":-/", ":-*", ":'-(",
+	":')", ":d", ":p", ":3", ":o", ":/", ":|", ":'(",
+	":)", ":(", ";-)", ";)", ";(", ":*", "^^", "<3", "o_o", "-_-",
+}
+
+func matchEmoticon(s string, pos int) int {
+	remaining := s[pos:]
+	best := 0
+	for _, e := range emoticonList {
+		if len(e) > best && strings.HasPrefix(remaining, e) {
+			best = len(e)
+		}
+	}
+	return best
+}
+
+func isPunctByte(c byte) bool {
+	switch c {
+	case '.', ',', '?', '!', ':', ';':
+		return true
+	}
+	return false
+}
+
+func Tokenize(text string) []string {
+	lower := strings.ToLower(text)
+	tokens := make([]string, 0, 16)
+	var buf strings.Builder
+
+	i := 0
+	for i < len(lower) {
+		c := lower[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			if buf.Len() > 0 {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+			}
+			i++
+			continue
+		}
+		if length := matchEmoticon(lower, i); length > 0 {
+			if buf.Len() > 0 {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+			}
+			tokens = append(tokens, lower[i:i+length])
+			i += length
+			continue
+		}
+		if isPunctByte(c) {
+			if buf.Len() > 0 {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+			}
+			tokens = append(tokens, string(c))
+			i++
+			continue
+		}
+		buf.WriteByte(c)
+		i++
+	}
+	if buf.Len() > 0 {
+		tokens = append(tokens, buf.String())
+	}
+	return tokens
+}
+
+func isPunct(w string) bool {
+	switch w {
+	case ".", ",", "?", "!", ":", ";":
+		return true
+	}
+	return false
+}
+
+func JoinWords(words []string) string {
+	var sb strings.Builder
+	for i, w := range words {
+		if i > 0 && !isPunct(w) {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(w)
+	}
+	return sb.String()
+}

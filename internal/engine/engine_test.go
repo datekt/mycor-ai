@@ -33,6 +33,33 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
+func TestTokenizeEmoticons(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		{"привет :)", []string{"привет", ":)"}},
+		{"hello :D world", []string{"hello", ":d", "world"}},
+		{":) :) :)", []string{":)", ":)", ":)"}},
+		{"hi <3", []string{"hi", "<3"}},
+		{"o_o what", []string{"o_o", "what"}},
+		{"good :-)", []string{"good", ":-)"}},
+		{"sad :(", []string{"sad", ":("}},
+		{"crying :'(", []string{"crying", ":'("}},
+	}
+	for _, c := range cases {
+		got := Tokenize(c.in)
+		if len(got) != len(c.want) {
+			t.Fatalf("Tokenize(%q) = %v, want %v", c.in, got, c.want)
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("Tokenize(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
+			}
+		}
+	}
+}
+
 func TestJoinWords(t *testing.T) {
 	cases := []struct {
 		name string
@@ -41,6 +68,7 @@ func TestJoinWords(t *testing.T) {
 	}{
 		{"simple", []string{"hello", "world"}, "hello world"},
 		{"punct", []string{"привет", ",", "мир", "!"}, "привет, мир!"},
+		{"emoticon", []string{"привет", "мир", ":)"}, "привет мир :)"},
 		{"empty", nil, ""},
 	}
 	for _, c := range cases {
@@ -65,6 +93,16 @@ func TestRegisterWord(t *testing.T) {
 	}
 	if len(Vocabulary) != 3 {
 		t.Errorf("vocab len = %d, want 3", len(Vocabulary))
+	}
+}
+
+func TestRegisterWordEmpty(t *testing.T) {
+	InitEngine()
+	if RegisterWord("") != 0 {
+		t.Errorf("empty word should return unk index 0")
+	}
+	if len(Vocabulary) != 1 {
+		t.Errorf("empty word should not extend vocabulary")
 	}
 }
 
@@ -96,6 +134,74 @@ func TestSoftmaxRepetitionPenalty(t *testing.T) {
 	}
 }
 
+func TestBackoffChainDeduplicates(t *testing.T) {
+	chain := backoffChain("x", unkToken)
+	seen := make(map[string]bool)
+	for _, k := range chain {
+		if seen[k] {
+			t.Errorf("duplicate in backoff chain: %q", k)
+		}
+		seen[k] = true
+	}
+	if len(chain) != 2 {
+		t.Errorf("chain len = %d, want 2", len(chain))
+	}
+}
+
+func TestBackoffChainFullLadder(t *testing.T) {
+	chain := backoffChain("a", "b")
+	if len(chain) != 4 {
+		t.Fatalf("chain len = %d, want 4", len(chain))
+	}
+	want := []string{"a b", unkToken + " b", "a " + unkToken, unkToken + " " + unkToken}
+	for i := range want {
+		if chain[i] != want[i] {
+			t.Errorf("chain[%d] = %q, want %q", i, chain[i], want[i])
+		}
+	}
+}
+
+func TestDynamicBackoffEmptyEngine(t *testing.T) {
+	InitEngine()
+	_, ok := sampleNextIndex("a", "b", nil, 1.0)
+	if ok {
+		t.Fatal("empty engine should have no matching context")
+	}
+}
+
+func TestDynamicBackoffUsesUnkPrefix(t *testing.T) {
+	InitEngine()
+	for i := 0; i < 10; i++ {
+		Train("a b", "c")
+	}
+	_, ok := sampleNextIndex("zzz", "a", nil, 1.0)
+	if !ok {
+		t.Fatal("expected backoff to find 'unk a' context")
+	}
+}
+
+func TestDynamicBackoffUsesUnkSuffix(t *testing.T) {
+	InitEngine()
+	for i := 0; i < 10; i++ {
+		Train("a b", "c")
+	}
+	_, ok := sampleNextIndex("a", "zzz", nil, 1.0)
+	if !ok {
+		t.Fatal("expected backoff to find 'a unk' context")
+	}
+}
+
+func TestDynamicBackoffFallsBackToUnkUnk(t *testing.T) {
+	InitEngine()
+	for i := 0; i < 10; i++ {
+		Train("a b", "c")
+	}
+	_, ok := sampleNextIndex("zzz", "yyy", nil, 1.0)
+	if !ok {
+		t.Fatal("expected backoff to reach unigram context")
+	}
+}
+
 func TestTrainUpdatesWeights(t *testing.T) {
 	InitEngine()
 	Train("привет", "мир")
@@ -104,6 +210,16 @@ func TestTrainUpdatesWeights(t *testing.T) {
 	}
 	if CountParameters() == 0 {
 		t.Error("expected non-zero parameters after training")
+	}
+}
+
+func TestTrainTeachesBackoffContexts(t *testing.T) {
+	InitEngine()
+	Train("a b", "c")
+	for _, key := range []string{"a b", unkToken + " b", "a " + unkToken, unkToken + " " + unkToken} {
+		if _, ok := Weights[key]; !ok {
+			t.Errorf("expected context %q to be trained", key)
+		}
 	}
 }
 
@@ -423,4 +539,32 @@ func TestThinkingResetOnInit(t *testing.T) {
 	if LastThoughts() != "" {
 		t.Errorf("thoughts should reset, got %q", LastThoughts())
 	}
+}
+
+func TestGenerateIdleThoughtEmpty(t *testing.T) {
+	InitEngine()
+	if got := GenerateIdleThought(); got != "" {
+		t.Errorf("expected empty idle thought with small vocab, got %q", got)
+	}
+}
+
+func TestGenerateIdleThoughtWithVocab(t *testing.T) {
+	InitEngine()
+	pairs := [][2]string{
+		{"один", "два"},
+		{"три", "четыре"},
+		{"пять", "шесть"},
+		{"семь", "восемь"},
+		{"девять", "десять"},
+	}
+	for i := 0; i < 5; i++ {
+		for _, p := range pairs {
+			Train(p[0], p[1])
+		}
+	}
+	if len(Vocabulary) < MinVocabForThinking {
+		t.Fatalf("setup failed: vocab = %d", len(Vocabulary))
+	}
+	got := GenerateIdleThought()
+	_ = got
 }
