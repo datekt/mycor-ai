@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"os"
 	"strings"
 )
 
@@ -10,10 +9,9 @@ type inputReader struct {
 	ch chan string
 }
 
-func newInputReader() *inputReader {
+func newInputReader(reader *bufio.Reader) *inputReader {
 	ir := &inputReader{ch: make(chan string, 10)}
 	go func() {
-		reader := bufio.NewReader(os.Stdin)
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
