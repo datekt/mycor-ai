@@ -14,7 +14,7 @@ var ru = Messages{
 	BrainLoadedInfo:  "Слов: %d | Параметров: %d",
 	ThinkingEnabled:  "Словарь достаточен для режима размышления.",
 	SessionReset:     "История сессии пуста. Обучение сохранено на диск.",
-	HelpHeader:       "\nПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.4:",
+	HelpHeader:       "\nПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.5:",
 	HelpHelp:         "  /help              - Показать список команд",
 	HelpStats:        "  /stats             - Топ связей в синапсах",
 	HelpHistory:      "  /history           - История текущей сессии",
@@ -33,7 +33,7 @@ var ru = Messages{
 	HistoryHeader:    "История сессии (%d сообщений):",
 	UndoOK:           "Предыдущий урок отменён.",
 	UndoFail:         "Нечего отменять.",
-	ResetOK:          "Память стёрта. ИИ перезапущен.",
+	ResetOK:          "Память стёрта. ИИ перезапущен. Настройки сброшены к значениям по умолчанию.",
 	ResetFail:        "Не удалось удалить файл памяти: %v",
 	TempRange:        "Недопустимое значение. Диапазон: 0.1 - 1.5",
 	TempOK:           "Новая креативность: %v",
@@ -62,4 +62,5 @@ var ru = Messages{
 	IdleUsage:        "Использование: /idle on или /idle off",
 	LossLine:         "Ошибка сети (Loss): %.4f | Параметров: %d",
 	LangSelect:       "Select language / Выберите язык:",
+	LangChoice:       "Выбор [1]: ",
 }

@@ -2,7 +2,7 @@
   <img src="assets/mycor-banner.jpeg" alt="MYCOR AI Banner" width="100%">
 </p>
 
-# 🧠 MYCOR (Mycor) — v4.4
+# 🧠 MYCOR (Mycor) — v4.5
 
 > **My Core. Zero Dependencies. Pure Go. Dynamic Context. Persistent Memory. Thinking. Daydreaming.**
 
@@ -20,21 +20,42 @@ On first launch, MYCOR is a "blank slate" (Tabula Rasa). To any of your requests
 
 ---
 
-## 🆕 What's new in v4.4
+## 🆕 What's new in v4.5
 
-- 🎭 **Special tokens for punctuation and emoticons:** The tokenizer now recognizes whole emoticons (`:)`, `:D`, `<3`, `^^`, `o_o`, `-_-`, `;-)`, etc.) as single tokens. The model can now learn your style of speech, your exclamations, your smileys and parentheses. Character imitation becomes far more expressive.
-- 🪜 **Dynamic Backoff:** A purely technical engine improvement. If the trigram context `(w1, w2)` has no trained weights, the engine now smoothly descends to bigram contexts (`<unk> w2`, `w1 <unk>`) and finally to the unigram context (`<unk> <unk>`) instead of returning `<unk>` or nothing. Speech remains coherent even on rare phrases.
-- 💤 **Idle Thinking ("daydreams" in the background):** If you step away from the computer (default 45 seconds of inactivity), the AI starts quietly muttering its own thoughts to the console. It continues the last active context on its own. Toggle with `/idle on|off`.
-- 🌐 **Bilingual interface:** At startup, the program asks you to choose a language (English / Русский) by pressing 1, 2, or Enter. During a session, you can switch at any time with `/lang en` or `/lang ru`. All engine internals, variable names, and error messages are now entirely in English.
-- 🧹 **Critical bug fixes:**
-  - `RegisterWord` now ignores empty strings — the weights matrix and vocabulary can no longer desynchronize.
-  - `backoffChain` no longer produces duplicate context keys when one of the arguments is already `<unk>`.
-  - Idle-thought generation correctly resets the inactivity timer after every user action.
-- ⬆️ **Version bump:** `modelVersion = 4`.
+v4.5 is a hardening release. No new features — the same engine, the same commands, the same brain format. Everything below is a bug fix, an encapsulation improvement, or a test-coverage upgrade found during a static and architectural review of v4.4.
+
+### Correctness
+
+- 🧮 **`softmaxBase` no longer returns garbage on degenerate input.** If the logits collapse to `-Inf`, `NaN`, or sum to exactly zero, the function now returns a uniform distribution instead of an unnormalized slice. Generation and training stay numerically safe.
+- 🎲 **Idle thoughts never seed on `<unk>`.** `GenerateIdleThought` used to call `rand.Intn(len(Vocabulary))` and could pick index 0, feeding the technical `<unk>` token into the thought chain. The sampling range is now `[1, len(Vocabulary))`, and there is a regression test that runs fifty idle cycles asserting the token never appears.
+- ⏱️ **Idle daydreams fire closer to the configured timeout.** The ticker interval was reduced from 5 s to 1 s. With a 45‑second `IdleTimeoutSec`, the first dream now appears at ~46 s instead of up to ~49 s.
+- 🔤 **Tokenizer is Unicode-aware.** Beyond ASCII `. , ? ! : ;`, the tokenizer now splits on the em dash `—`, en dash `–`, ellipsis `…`, and Russian/typographic quotes `« » “ ” ‘ ’`. Words like `думаю…` no longer hide punctuation inside a single token.
+- 🌐 **`LangSelect` and `LangChoice` are actually rendered.** The startup language prompt now pulls both strings from the active i18n pack instead of hardcoding English text.
+
+### Robustness
+
+- 📥 **`/import` handles arbitrarily long lines.** The importer switched from `bufio.Scanner` (which silently fails with `ErrTooLong` past its 1 MB buffer) to `bufio.Reader.ReadString`, so multi‑megabyte lines without spaces now train correctly instead of being dropped.
+- 🧹 **`/reset` restores configuration defaults.** Previously it wiped the brain but left the user's `/temp`, `/lr`, `/momentum`, and `/idle` overrides in memory. `config.Reset()` now returns every tunable to its `Default*` constant.
+- 🛑 **`exit` and slash commands are intercepted during the teacher prompt.** After the model answers, `chatTurn` waits for a correction. If the user typed `exit` or `/stats` instead, those inputs used to be silently swallowed as a training target. They are now dispatched the same way as at the main prompt.
+
+### Architecture and encapsulation
+
+- 🔒 **`weights` and `velocity` are unexported.** They used to be package-level `Weights`/`Velocity` maps visible to the entire module, which let the CLI read them directly in `/stats`. The engine now exposes a single read accessor, `ContextWeightSize(ctxKey) (int, bool)`, and the CLI goes through it. The internal maps are only reachable from inside `internal/engine`.
+- 🎛️ **`config` package gains `Reset()` and `Default*` constants.** The engine, CLI, and `/reset` command all share one source of truth for defaults instead of duplicating literals.
+- 📖 **Single shared `bufio.Reader` across the CLI.** `selectLanguage` and `newInputReader` used to create two separate readers over `os.Stdin`, which could lose buffered bytes typed during the language prompt. `Run` now creates one reader and hands it to both.
+
+### Tooling and tests
+
+- ⬆️ **`go.mod` says `go 1.27.1`.** It used to say `1.24`, contradicting the README. The declared toolchain and the documented one are now in sync.
+- 🧹 **`gosimple` removed from `.golangci.yml`.** The linter was merged into `staticcheck` and its separate entry produced a deprecation warning on every run.
+- 🧪 **All four `testdata/` fixtures are now used.** `brain_corrupt.json`, `brain_duplicate.json`, `brain_v3.json`, and `brain_v4.json` are read by dedicated engine tests that verify corruption rejection, duplicate detection, v3→v4 migration with `<unk>` insertion, and clean v4 round-trip loading. `testdata/sample.txt` is exercised by an importer test.
+- ✅ **Two assertion-free tests were rewritten.** `TestGenerateResponseNoTrain` and `TestGenerateIdleThoughtWithVocab` previously computed a value and discarded it with `_ =`. They now assert non-empty output, absence of `<unk>`, and reset behavior.
+- 🧪 **New regression tests.** `TestSoftmaxBaseUniformOnDegenerateInput`, `TestGenerateIdleThoughtNeverSeedsUnk`, `TestContextWeightSize`, `TestImportTxtFileLongLine`, `TestImportSampleFixture`, and `TestReset` in the config package.
+- 📌 **`modelVersion` stays at 4.** The brain file format is unchanged; v4.4 brains load into v4.5 without migration.
 
 ---
 
-## ✨ Key Features of v4.4
+## ✨ Key Features of v4.5
 
 - 📦 **Zero Dependencies:** Uses exclusively the Go standard library.
 - 🚀 **N-Gram Context Window:** Sliding context window of two words for coherent speech.
@@ -46,12 +67,12 @@ On first launch, MYCOR is a "blank slate" (Tabula Rasa). To any of your requests
 - 🌐 **Bilingual UI:** English / Russian, switchable at runtime.
 - 💾 **Persistent memory:** The trained brain is saved to `history.json` and restored on restart. Session history is reset each launch — it lives only in RAM.
 - 📊 **Engineering console:** Commands for monitoring loss, temperature, learning rate, and momentum.
-- 📖 **Batch import:** Instant auto-training from a text file.
+- 📖 **Batch import:** Instant auto-training from a text file, now with unlimited line length.
 - 🌀 **Momentum Optimizer:** Weight updates with inertia (EMA gradient).
 - 🧮 **L2 Weight Decay:** Light regularization against weight blow-up.
 - 🛡️ **Atomic save:** Brain is written to a temp file and then renamed.
 - 🔒 **Strict validation:** Duplicate words, weight length, and JSON integrity are checked on load.
-- 🧪 **Test coverage:** Full suite of unit tests for the engine, importer, thinking mode, dynamic backoff, and idle thinking.
+- 🧪 **Test coverage:** Full suite of unit tests for the engine, importer, thinking mode, dynamic backoff, idle thinking, and configuration reset.
 
 ## 🚀 Quick Start
 
@@ -100,7 +121,7 @@ All subsequent messages, help, and history role names update immediately.
 - `/stats` — Current synapse count, thinking-mode status, and recent active contexts.
 - `/history` — View the dialogue history of the current session.
 - `/undo` — Undo the last lesson.
-- `/reset` — Completely erase `history.json` and start from scratch.
+- `/reset` — Completely erase `history.json`, restart the brain, and restore configuration defaults.
 - `/temp [0.1 - 1.5]` — Creativity (Softmax temperature).
 - `/lr [0.01 - 1.0]` — Learning rate.
 - `/momentum [0.0 - 0.99]` — Gradient inertia (default 0.9).
@@ -109,6 +130,8 @@ All subsequent messages, help, and history role names update immediately.
 - `/lang [en|ru]` — Switch the interface language.
 - `/idle [on|off]` — Enable / disable idle thinking (daydreams).
 - `exit` — Safe exit with weights saved.
+
+`exit` and slash commands are also accepted while the program is waiting for a teacher correction, so you never lose an input to the training loop by accident.
 
 ---
 
@@ -125,13 +148,18 @@ All subsequent messages, help, and history role names update immediately.
 - Last "thoughts" of the network (`lastThoughts`).
 - Backup copy for `/undo`.
 
+**Reset only by `/reset`:**
+- Runtime configuration (`/temp`, `/lr`, `/momentum`, `/idle`) — back to `Default*` values.
+- The `history.json` file on disk.
+- The in-memory brain.
+
 This separation lets you accumulate knowledge between sessions without dragging random garbage from previous conversations.
 
 ---
 
 ## 💭 How Thinking Mode Works
 
-1. **Activation threshold:** `MinVocabForThinking = 10`. While the vocabulary has fewer than 10 unique words, the model answers instantly, like v4.2.
+1. **Activation threshold:** `MinVocabForThinking = 10`. While the vocabulary has fewer than 10 unique words, the model answers instantly.
 2. **Internal generation:** When active, the engine performs `thinkingSteps = 4` sampling steps from the same weight matrix but does not show them to the user during generation.
 3. **Answer context:** The resulting "thought" becomes a prefix to the prompt, and the final answer is generated from the extended context. In other words, the answer is a continuation of the thought.
 4. **Transparency:** The `MYCOR thoughts:` line is printed after the answer so you can observe the inner logic. `/stats` shows the current mode status.
@@ -151,6 +179,8 @@ For each prediction, the engine tries the following contexts in order:
 
 The first context with trained weights wins. If none of them exist, the engine falls back to a random vocabulary pick (in `generate`) or returns nothing (in `think`). This is why the model no longer produces `<unk>` on rare phrases — it smoothly descends the context ladder, keeping the speech coherent.
 
+The chain is rebuilt on every step from the current vocabulary and weight state, and it is deduplicated: if `w1` is already `<unk>`, the `<unk> w2` level is skipped.
+
 ---
 
 ## 🎭 Special Tokens for Punctuation and Emoticons
@@ -159,7 +189,7 @@ The tokenizer recognizes whole emoticons as single tokens:
 
 `:-)`, `:)`, `;-)`, `;)`, `:-D`, `:D`, `:-P`, `:P`, `:3`, `:/`, `:|`, `:'(`, `:'-(`, `:*`, `^^`, `<3`, `o_o`, `-_-`
 
-Punctuation (`.`, `,`, `?`, `!`, `:`, `;`) is still split into separate tokens, which lets the model learn to attach punctuation to words correctly.
+Punctuation is split into separate tokens, both ASCII (`. , ? ! : ;`) and Unicode typography (`— – … « » “ ” ‘ ’`). This lets the model learn to attach punctuation to words correctly, and prevents Russian em dashes or ellipses from being glued onto adjacent tokens.
 
 This means your trained network can pick up your habit of ending messages with `:)` or starting them with `^^`, and reproduce it in its own output — a small but important part of what "character" means.
 
@@ -170,7 +200,7 @@ This means your trained network can pick up your habit of ending messages with `
 Idle thinking is a background daydream mode. It works like this:
 
 1. **Timer:** After each of your messages, an inactivity timer is reset. If no key is pressed for `IdleTimeoutSec` seconds (default 45), the idle ticker fires.
-2. **Seed:** The engine takes the most recently touched context (from `RecentContexts`). If none exists yet, it picks a random word from the vocabulary.
+2. **Seed:** The engine takes the most recently touched context (from `RecentContexts`). If none exists yet, it picks a random word from `Vocabulary[1:]` — index 0 is skipped so `<unk>` is never used as a seed.
 3. **Daydream:** It runs the same `think()` pipeline used for thinking mode and prints the result as `Idle thought: ...`.
 4. **Timer reset:** After printing, the timer resets, so the AI keeps producing new daydreams every 45 seconds until you return and type something.
 
@@ -188,7 +218,7 @@ Idle thinking is a cute way to observe what the network has actually learned —
 The mathematics of MYCOR take a little over 350 lines of code in the `engine/` folder. The architecture is built on Markov transitions of context chains `[word1 + word2] -> word3`.
 
 Training uses:
-- **Softmax with numerical stabilization** (shift by max).
+- **Softmax with numerical stabilization** (shift by max, uniform fallback on degenerate input).
 - **Cross-entropy** as the loss function.
 - **SGD with inertia (EMA gradient):** `v = m*v + (1-m)*grad; w = w*decay + lr*v`.
 - **Weight Decay:** `WeightDecay` parameter in the config.
@@ -221,7 +251,8 @@ Replace your file with the returned text and run the project.
 - [x] v4.1 — Engine tests, fixes for `undo`, `softmax`, `import`, `history.json` validation.
 - [x] v4.2 — Momentum optimizer, weight decay, atomic save, persistent memory and session history, strict model validation, updated command panel.
 - [x] v4.3 — Thinking Mode (≥10 words), transparent thought output, fixes for `RegisterWord` and `reset`, filtered `<unk>` from answers, Go 1.27.1.
-- [x] v4.4 — Special tokens for punctuation and emoticons, Dynamic Backoff, Idle Thinking, bilingual interface, critical bug fixes.
+- [x] v4.4 — Special tokens for punctuation and emoticons, Dynamic Backoff, Idle Thinking, bilingual interface.
+- [x] v4.5 — Hardening release: encapsulation of `weights`/`velocity`, Unicode tokenizer, safe `softmaxBase`, `/reset` config reset, unlimited-line `/import`, `exit`/slash interception during the teacher prompt, shared stdin reader, all `testdata/` fixtures under test, Go version synced to `go.mod`, `gosimple` removed.
 - [ ] v5.0 (In development) — Local Web UI:
   - Interactive chat in the browser via Go HTML templates.
   - Visual sliders for Temperature and Learning Rate.

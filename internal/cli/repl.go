@@ -4,6 +4,10 @@ Package cli implements the MYCOR interactive terminal.
 The CLI owns the REPL loop, the language selection prompt, the help panel,
 and the idle ticker. It talks to the engine only through the public API
 exposed by mycor/internal/engine and never touches weights directly.
+
+The stdin reader is created once and shared between the language prompt
+and the background input goroutine so that no bytes typed by the user are
+lost between the two.
 */
 package cli
 
@@ -21,12 +25,13 @@ import (
 const brainFile = "history.json"
 
 func Run() {
-	selectLanguage()
+	reader := bufio.NewReader(os.Stdin)
+	selectLanguage(reader)
 	m := i18n.M()
 
 	engine.InitEngine()
 
-	fmt.Println("MYCOR AI v4.4")
+	fmt.Println("MYCOR AI v4.5")
 	if engine.LoadBrain(brainFile) {
 		fmt.Println(m.BrainLoaded)
 		fmt.Printf(m.BrainLoadedInfo+"\n", len(engine.Vocabulary), engine.CountParameters())
@@ -40,7 +45,7 @@ func Run() {
 
 	printHelp()
 
-	ir := newInputReader()
+	ir := newInputReader(reader)
 	lastActivity := time.Now()
 	ticker := time.NewTicker(idleTickInterval)
 	defer ticker.Stop()
@@ -65,13 +70,15 @@ func Run() {
 	}
 }
 
-func selectLanguage() {
-	fmt.Println("Select language / Выберите язык:")
+func selectLanguage(reader *bufio.Reader) {
+	i18n.Set(i18n.EN)
+	m := i18n.M()
+
+	fmt.Println(m.LangSelect)
 	fmt.Println("  1. English")
 	fmt.Println("  2. Русский")
-	fmt.Print("Choice [1]: ")
+	fmt.Print(m.LangChoice)
 
-	reader := bufio.NewReader(os.Stdin)
 	line, _ := reader.ReadString('\n')
 	line = strings.TrimSpace(line)
 
