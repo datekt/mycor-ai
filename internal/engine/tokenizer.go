@@ -2,6 +2,7 @@ package engine
 
 import (
 	"strings"
+	"unicode/utf8"
 )
 
 var emoticonList = []string{
@@ -29,6 +30,16 @@ func isPunctByte(c byte) bool {
 	return false
 }
 
+func isPunctRune(r rune) bool {
+	switch r {
+	case '.', ',', '?', '!', ':', ';':
+		return true
+	case '—', '–', '«', '»', '…', '“', '”', '‘', '’', '‒', '―':
+		return true
+	}
+	return false
+}
+
 func Tokenize(text string) []string {
 	lower := strings.ToLower(text)
 	tokens := make([]string, 0, 16)
@@ -37,34 +48,55 @@ func Tokenize(text string) []string {
 	i := 0
 	for i < len(lower) {
 		c := lower[i]
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
-			if buf.Len() > 0 {
-				tokens = append(tokens, buf.String())
-				buf.Reset()
+		if c < 128 {
+			if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+				if buf.Len() > 0 {
+					tokens = append(tokens, buf.String())
+					buf.Reset()
+				}
+				i++
+				continue
 			}
+			if length := matchEmoticon(lower, i); length > 0 {
+				if buf.Len() > 0 {
+					tokens = append(tokens, buf.String())
+					buf.Reset()
+				}
+				tokens = append(tokens, lower[i:i+length])
+				i += length
+				continue
+			}
+			if isPunctByte(c) {
+				if buf.Len() > 0 {
+					tokens = append(tokens, buf.String())
+					buf.Reset()
+				}
+				tokens = append(tokens, string(c))
+				i++
+				continue
+			}
+			buf.WriteByte(c)
 			i++
 			continue
 		}
-		if length := matchEmoticon(lower, i); length > 0 {
-			if buf.Len() > 0 {
-				tokens = append(tokens, buf.String())
-				buf.Reset()
-			}
-			tokens = append(tokens, lower[i:i+length])
-			i += length
-			continue
-		}
-		if isPunctByte(c) {
-			if buf.Len() > 0 {
-				tokens = append(tokens, buf.String())
-				buf.Reset()
-			}
-			tokens = append(tokens, string(c))
+
+		r, size := utf8.DecodeRuneInString(lower[i:])
+		if r == utf8.RuneError && size == 1 {
+			buf.WriteByte(c)
 			i++
 			continue
 		}
-		buf.WriteByte(c)
-		i++
+		if isPunctRune(r) {
+			if buf.Len() > 0 {
+				tokens = append(tokens, buf.String())
+				buf.Reset()
+			}
+			tokens = append(tokens, string(r))
+			i += size
+			continue
+		}
+		buf.WriteRune(r)
+		i += size
 	}
 	if buf.Len() > 0 {
 		tokens = append(tokens, buf.String())
@@ -74,7 +106,7 @@ func Tokenize(text string) []string {
 
 func isPunct(w string) bool {
 	switch w {
-	case ".", ",", "?", "!", ":", ";":
+	case ".", ",", "?", "!", ":", ";", "…":
 		return true
 	}
 	return false
