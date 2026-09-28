@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,8 @@ func TestTokenize(t *testing.T) {
 		{"punct", "Привет, мир!", []string{"привет", ",", "мир", "!"}},
 		{"extra spaces", "  a   b  ", []string{"a", "b"}},
 		{"empty", "", nil},
+		{"russian em dash", "привет — мир", []string{"привет", "—", "мир"}},
+		{"russian ellipsis", "думаю… молчу", []string{"думаю", "…", "молчу"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -85,6 +88,7 @@ func TestJoinWords(t *testing.T) {
 		{"simple", []string{"hello", "world"}, "hello world"},
 		{"punct", []string{"привет", ",", "мир", "!"}, "привет, мир!"},
 		{"emoticon", []string{"привет", "мир", ":)"}, "привет мир :)"},
+		{"em dash", []string{"привет", "—", "мир"}, "привет — мир"},
 		{"empty", nil, ""},
 	}
 	for _, c := range cases {
@@ -137,6 +141,25 @@ func TestSoftmaxBase(t *testing.T) {
 	}
 	if !(probs[0] < probs[1] && probs[1] < probs[2]) {
 		t.Errorf("monotonicity broken: %v", probs)
+	}
+}
+
+func TestSoftmaxBaseUniformOnDegenerateInput(t *testing.T) {
+	logits := []float64{math.Inf(-1), math.Inf(-1), math.Inf(-1)}
+	probs := softmaxBase(logits, 1, nil, 0)
+	if len(probs) != len(logits) {
+		t.Fatalf("len = %d, want %d", len(probs), len(logits))
+	}
+	expected := 1.0 / float64(len(logits))
+	sum := 0.0
+	for _, p := range probs {
+		sum += p
+		if math.Abs(p-expected) > 1e-9 {
+			t.Errorf("prob = %v, want %v", p, expected)
+		}
+	}
+	if math.Abs(sum-1) > 1e-9 {
+		t.Errorf("sum = %v, want 1", sum)
 	}
 }
 
@@ -233,7 +256,7 @@ func TestTrainTeachesBackoffContexts(t *testing.T) {
 	InitEngine()
 	Train("a b", "c")
 	for _, key := range []string{"a b", unkToken + " b", "a " + unkToken, unkToken + " " + unkToken} {
-		if _, ok := Weights[key]; !ok {
+		if _, ok := weights[key]; !ok {
 			t.Errorf("expected context %q to be trained", key)
 		}
 	}
@@ -319,7 +342,7 @@ func TestSaveLoadBrainPersistsVelocity(t *testing.T) {
 	if !LoadBrain(path) {
 		t.Fatal("load failed")
 	}
-	if len(Velocity) == 0 {
+	if len(velocity) == 0 {
 		t.Error("velocity should be restored")
 	}
 }
@@ -332,6 +355,61 @@ func TestLoadBrainInvalidJSON(t *testing.T) {
 	}
 	if LoadBrain(path) {
 		t.Error("expected failure on bad JSON")
+	}
+}
+
+func TestLoadBrainCorruptFixture(t *testing.T) {
+	InitEngine()
+	path := filepath.Join("..", "..", "testdata", "brain_corrupt.json")
+	if LoadBrain(path) {
+		t.Fatal("expected LoadBrain to fail on corrupt fixture")
+	}
+	if len(Vocabulary) != 1 || Vocabulary[0] != unkToken {
+		t.Errorf("state should stay untouched on failure, got %v", Vocabulary)
+	}
+}
+
+func TestLoadBrainDuplicateFixture(t *testing.T) {
+	InitEngine()
+	path := filepath.Join("..", "..", "testdata", "brain_duplicate.json")
+	if LoadBrain(path) {
+		t.Fatal("expected LoadBrain to fail on duplicate fixture")
+	}
+	if len(Vocabulary) != 1 || Vocabulary[0] != unkToken {
+		t.Errorf("state should stay untouched on failure, got %v", Vocabulary)
+	}
+}
+
+func TestLoadBrainV3Fixture(t *testing.T) {
+	InitEngine()
+	path := filepath.Join("..", "..", "testdata", "brain_v3.json")
+	if !LoadBrain(path) {
+		t.Fatal("expected v3 fixture to load and migrate")
+	}
+	if Vocabulary[0] != unkToken {
+		t.Errorf("unk should be inserted at index 0, got %q", Vocabulary[0])
+	}
+	if len(Vocabulary) != 5 {
+		t.Errorf("vocab len = %d, want 5", len(Vocabulary))
+	}
+	for k, w := range weights {
+		if len(w) != len(Vocabulary) {
+			t.Errorf("context %q weight len = %d, want %d", k, len(w), len(Vocabulary))
+		}
+	}
+}
+
+func TestLoadBrainV4Fixture(t *testing.T) {
+	InitEngine()
+	path := filepath.Join("..", "..", "testdata", "brain_v4.json")
+	if !LoadBrain(path) {
+		t.Fatal("expected v4 fixture to load")
+	}
+	if len(Vocabulary) != 5 {
+		t.Errorf("vocab len = %d, want 5", len(Vocabulary))
+	}
+	if _, ok := weights["hello world"]; !ok {
+		t.Error("expected hello world context in weights")
 	}
 }
 
@@ -386,19 +464,24 @@ func TestLoadBrainRealignsWeights(t *testing.T) {
 	if !LoadBrain(path) {
 		t.Fatal("load failed")
 	}
-	w := Weights["<unk> a"]
+	w := weights["<unk> a"]
 	if len(w) != 3 {
 		t.Errorf("weight len = %d, want 3", len(w))
 	}
-	if len(Velocity["<unk> a"]) != 3 {
-		t.Errorf("velocity len = %d, want 3", len(Velocity["<unk> a"]))
+	if len(velocity["<unk> a"]) != 3 {
+		t.Errorf("velocity len = %d, want 3", len(velocity["<unk> a"]))
 	}
 }
 
 func TestGenerateResponseNoTrain(t *testing.T) {
 	InitEngine()
 	out := GenerateResponse("привет", 5)
-	_ = out
+	if out != "" {
+		t.Errorf("untrained engine should return empty string, got %q", out)
+	}
+	if lastThoughts != "" {
+		t.Errorf("untrained engine should have no thoughts, got %q", lastThoughts)
+	}
 }
 
 func TestGenerateResponseAfterTrain(t *testing.T) {
@@ -416,7 +499,9 @@ func TestGenerateResponseUnknownWord(t *testing.T) {
 	InitEngine()
 	Train("привет мир", "как дела")
 	out := GenerateResponse("совершенносекретноеслово", 3)
-	_ = out
+	if strings.Contains(out, unkToken) {
+		t.Errorf("output should not contain %q, got %q", unkToken, out)
+	}
 }
 
 func TestRecentContexts(t *testing.T) {
@@ -563,5 +648,33 @@ func TestGenerateIdleThoughtWithVocab(t *testing.T) {
 		t.Fatalf("setup failed: vocab = %d", len(Vocabulary))
 	}
 	got := GenerateIdleThought()
-	_ = got
+	if strings.Contains(got, unkToken) {
+		t.Errorf("idle thought must never contain %q, got %q", unkToken, got)
+	}
+}
+
+func TestGenerateIdleThoughtNeverSeedsUnk(t *testing.T) {
+	InitEngine()
+	trainThinkingCorpus(t, 10)
+	for attempt := 0; attempt < 50; attempt++ {
+		got := GenerateIdleThought()
+		if strings.Contains(got, unkToken) {
+			t.Fatalf("iteration %d produced %q containing %q", attempt, got, unkToken)
+		}
+	}
+}
+
+func TestContextWeightSize(t *testing.T) {
+	InitEngine()
+	Train("a b", "c")
+	size, ok := ContextWeightSize("a b")
+	if !ok {
+		t.Fatal("expected a b context to be present")
+	}
+	if size != len(Vocabulary) {
+		t.Errorf("size = %d, want %d", size, len(Vocabulary))
+	}
+	if _, ok := ContextWeightSize("missing key"); ok {
+		t.Error("missing context should return false")
+	}
 }
