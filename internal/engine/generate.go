@@ -73,8 +73,10 @@ func GenerateIdleThought() string {
 	var prompt string
 	if len(seeds) > 0 {
 		prompt = seeds[len(seeds)-1]
+	} else if len(Vocabulary) > 1 {
+		prompt = Vocabulary[rand.Intn(len(Vocabulary)-1)+1]
 	} else {
-		prompt = Vocabulary[rand.Intn(len(Vocabulary))]
+		return ""
 	}
 	thoughts := think(prompt)
 	return JoinWords(thoughts)
