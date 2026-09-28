@@ -34,3 +34,29 @@ func TestMutable(t *testing.T) {
 	}
 	Temperature = original
 }
+
+func TestReset(t *testing.T) {
+	Temperature = 0.1
+	LearningRate = 0.99
+	Momentum = 0.0
+	IdleEnabled = false
+	IdleTimeoutSec = 1
+
+	Reset()
+
+	if Temperature != DefaultTemperature {
+		t.Errorf("Temperature = %v, want %v", Temperature, DefaultTemperature)
+	}
+	if LearningRate != DefaultLearningRate {
+		t.Errorf("LearningRate = %v, want %v", LearningRate, DefaultLearningRate)
+	}
+	if Momentum != DefaultMomentum {
+		t.Errorf("Momentum = %v, want %v", Momentum, DefaultMomentum)
+	}
+	if IdleEnabled != DefaultIdleEnabled {
+		t.Errorf("IdleEnabled = %v, want %v", IdleEnabled, DefaultIdleEnabled)
+	}
+	if IdleTimeoutSec != DefaultIdleTimeoutSec {
+		t.Errorf("IdleTimeoutSec = %v, want %v", IdleTimeoutSec, DefaultIdleTimeoutSec)
+	}
+}
