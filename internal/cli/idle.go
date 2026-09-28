@@ -9,7 +9,7 @@ import (
 	"mycor/internal/i18n"
 )
 
-const idleTickInterval = 5 * time.Second
+const idleTickInterval = 1 * time.Second
 
 func shouldDaydream(lastActivity time.Time) bool {
 	if !config.IdleEnabled {

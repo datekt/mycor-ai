@@ -97,6 +97,7 @@ func cmdReset() {
 		return
 	}
 	engine.InitEngine()
+	config.Reset()
 	fmt.Println(m.ResetOK)
 }
 
@@ -180,8 +181,8 @@ func cmdStats() {
 		start = len(recent) - 3
 	}
 	for _, k := range recent[start:] {
-		if v, ok := engine.Weights[k]; ok {
-			fmt.Printf(m.Synapse+"\n", k, len(v))
+		if size, ok := engine.ContextWeightSize(k); ok {
+			fmt.Printf(m.Synapse+"\n", k, size)
 		}
 	}
 }
@@ -259,6 +260,14 @@ func chatTurn(line string, ir *inputReader) {
 		return
 	}
 
+	if correctAnswer == "exit" {
+		saveOrWarn()
+		os.Exit(0)
+	}
+	if strings.HasPrefix(correctAnswer, "/") {
+		dispatchCommand(correctAnswer, ir)
+		return
+	}
 	if correctAnswer == "" {
 		return
 	}

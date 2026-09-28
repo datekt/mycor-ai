@@ -61,8 +61,13 @@ func softmaxBase(logits []float64, temperature float64, usedWords map[int]bool, 
 		scaled[i] = math.Exp(v - maxVal)
 		sum += scaled[i]
 	}
-	if sum == 0 {
-		return scaled
+	if sum <= 0 || math.IsNaN(sum) || math.IsInf(sum, 0) {
+		uniform := make([]float64, len(scaled))
+		share := 1.0 / float64(len(scaled))
+		for i := range uniform {
+			uniform[i] = share
+		}
+		return uniform
 	}
 	for i := range scaled {
 		scaled[i] /= sum
@@ -73,7 +78,7 @@ func softmaxBase(logits []float64, temperature float64, usedWords map[int]bool, 
 func ensureWeights(ctxKey string) ([]float64, []float64) {
 	vLen := len(Vocabulary)
 
-	w, ok := Weights[ctxKey]
+	w, ok := weights[ctxKey]
 	if !ok {
 		w = make([]float64, vLen)
 		for i := range w {
@@ -87,9 +92,9 @@ func ensureWeights(ctxKey string) ([]float64, []float64) {
 	} else if len(w) > vLen {
 		w = w[:vLen]
 	}
-	Weights[ctxKey] = w
+	weights[ctxKey] = w
 
-	vel, vok := Velocity[ctxKey]
+	vel, vok := velocity[ctxKey]
 	if !vok {
 		vel = make([]float64, vLen)
 	}
@@ -100,7 +105,7 @@ func ensureWeights(ctxKey string) ([]float64, []float64) {
 	} else if len(vel) > vLen {
 		vel = vel[:vLen]
 	}
-	Velocity[ctxKey] = vel
+	velocity[ctxKey] = vel
 
 	return w, vel
 }
@@ -114,7 +119,7 @@ func sampleNextIndex(w1, w2 string, usedWords map[int]bool, temperature float64)
 		found  bool
 	)
 	for _, key := range chain {
-		if v, ok := Weights[key]; ok && len(v) > 0 {
+		if v, ok := weights[key]; ok && len(v) > 0 {
 			logits = v
 			ctxKey = key
 			found = true

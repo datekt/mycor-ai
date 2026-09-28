@@ -69,6 +69,7 @@ type Messages struct {
 	IdleUsage        string
 	LossLine         string
 	LangSelect       string
+	LangChoice       string
 }
 
 var current = EN
