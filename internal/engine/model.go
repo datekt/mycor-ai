@@ -23,35 +23,35 @@ func RegisterWord(word string) int {
 	idx := len(Vocabulary) - 1
 	WordToIdx[word] = idx
 
-	for k, w := range Weights {
+	for k, w := range weights {
 		if len(w) < len(Vocabulary) {
 			extended := make([]float64, len(Vocabulary))
 			copy(extended, w)
 			for i := len(w); i < len(Vocabulary); i++ {
 				extended[i] = initWeight()
 			}
-			Weights[k] = extended
+			weights[k] = extended
 		}
 	}
-	for k, v := range Velocity {
+	for k, v := range velocity {
 		if len(v) < len(Vocabulary) {
 			extended := make([]float64, len(Vocabulary))
 			copy(extended, v)
-			Velocity[k] = extended
+			velocity[k] = extended
 		}
 	}
 	return idx
 }
 
 func SaveBackup() {
-	BackupWeights = make(map[string][]float64, len(Weights))
-	for k, v := range Weights {
+	BackupWeights = make(map[string][]float64, len(weights))
+	for k, v := range weights {
 		cp := make([]float64, len(v))
 		copy(cp, v)
 		BackupWeights[k] = cp
 	}
-	BackupVelocity = make(map[string][]float64, len(Velocity))
-	for k, v := range Velocity {
+	BackupVelocity = make(map[string][]float64, len(velocity))
+	for k, v := range velocity {
 		cp := make([]float64, len(v))
 		copy(cp, v)
 		BackupVelocity[k] = cp
@@ -70,8 +70,8 @@ func UndoLastTrain() bool {
 	}
 	Vocabulary = BackupVocabulary
 	WordToIdx = BackupWordToIdx
-	Weights = BackupWeights
-	Velocity = BackupVelocity
+	weights = BackupWeights
+	velocity = BackupVelocity
 	BackupVocabulary = nil
 	BackupWordToIdx = nil
 	BackupWeights = nil
@@ -81,7 +81,7 @@ func UndoLastTrain() bool {
 
 func CountParameters() int {
 	total := 0
-	for _, v := range Weights {
+	for _, v := range weights {
 		total += len(v)
 	}
 	return total

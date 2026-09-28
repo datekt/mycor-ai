@@ -6,6 +6,10 @@ mode, idle daydreams, and persistent weights.
 The package keeps global mutable state representing a single process-wide
 brain. Call InitEngine to reset it, LoadBrain to load from disk, and
 Train or GenerateResponse to interact with it.
+
+Weight and velocity maps are intentionally unexported. External packages
+query them through ContextWeightSize, which is the only read accessor the
+CLI needs.
 */
 package engine
 
@@ -25,8 +29,8 @@ const (
 var (
 	Vocabulary []string
 	WordToIdx  map[string]int
-	Weights    map[string][]float64
-	Velocity   map[string][]float64
+	weights    map[string][]float64
+	velocity   map[string][]float64
 
 	BackupVocabulary []string
 	BackupWordToIdx  map[string]int
@@ -41,8 +45,8 @@ var (
 func InitEngine() {
 	Vocabulary = []string{unkToken}
 	WordToIdx = map[string]int{unkToken: 0}
-	Weights = make(map[string][]float64)
-	Velocity = make(map[string][]float64)
+	weights = make(map[string][]float64)
+	velocity = make(map[string][]float64)
 
 	BackupVocabulary = nil
 	BackupWordToIdx = nil
@@ -56,4 +60,12 @@ func InitEngine() {
 
 func initWeight() float64 {
 	return (rand.Float64() - 0.5) * 0.1
+}
+
+func ContextWeightSize(ctxKey string) (int, bool) {
+	v, ok := weights[ctxKey]
+	if !ok {
+		return 0, false
+	}
+	return len(v), true
 }

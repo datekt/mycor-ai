@@ -92,8 +92,8 @@ func loadBrain(path string) error {
 	}
 
 	Vocabulary = loaded.Vocabulary
-	Weights = loaded.Weights
-	Velocity = newVelocity
+	weights = loaded.Weights
+	velocity = newVelocity
 	WordToIdx = make(map[string]int, len(Vocabulary))
 	for i, word := range Vocabulary {
 		WordToIdx[word] = i
@@ -113,8 +113,8 @@ func SaveBrain(path string) error {
 	model := BrainModel{
 		Version:    modelVersion,
 		Vocabulary: Vocabulary,
-		Weights:    Weights,
-		Velocity:   Velocity,
+		Weights:    weights,
+		Velocity:   velocity,
 	}
 	data, err := json.MarshalIndent(model, "", "  ")
 	if err != nil {
