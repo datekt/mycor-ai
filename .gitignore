@@ -1,2 +1,11 @@
 history.json
 *.exe
+bin/
+repomix-output.xml
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

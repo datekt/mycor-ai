@@ -1,10 +1,29 @@
-.PHONY: build run test race cover lint check vet fmt clean tidy
+.PHONY: build build-windows build-linux build-macos build-all run test race cover lint check vet fmt clean tidy
 
-BINARY := bin/mycor
-MAIN   := ./cmd/mycor
+BIN_DIR := bin
+MAIN    := ./cmd/mycor
+
+ifeq ($(OS),Windows_NT)
+BINARY := $(BIN_DIR)/mycor.exe
+else
+BINARY := $(BIN_DIR)/mycor
+endif
 
 build:
-	go build -o $(BINARY) $(MAIN)
+	go build -trimpath -ldflags="-s -w" -o $(BINARY) $(MAIN)
+
+build-windows:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/mycor-windows-amd64.exe $(MAIN)
+
+build-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/mycor-linux-amd64 $(MAIN)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/mycor-linux-arm64 $(MAIN)
+
+build-macos:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/mycor-macos-amd64 $(MAIN)
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o $(BIN_DIR)/mycor-macos-arm64 $(MAIN)
+
+build-all: build-windows build-linux build-macos
 
 run:
 	go run $(MAIN)
@@ -44,4 +63,4 @@ tidy:
 	go mod tidy
 
 clean:
-	rm -rf bin/ cover.out
+	rm -rf $(BIN_DIR)/ cover.out
