@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MYCOR</title>
+<style>
+:root {
+  --bg: #0e0e12;
+  --panel: #17171f;
+  --border: #2a2a36;
+  --fg: #e8e8f0;
+  --muted: #8b8b9a;
+  --accent: #7c5cff;
+  --accent2: #4fd1c5;
+  --danger: #ff6b6b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+header {
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+header .tag {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+#app {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 0;
+}
+#sidebar {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.panel h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.stat-row span:last-child {
+  color: var(--accent2);
+  font-variant-numeric: tabular-nums;
+}
+.control {
+  margin-bottom: 12px;
+}
+.control label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.control label b {
+  color: var(--fg);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+button {
+  font: inherit;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+button:hover {
+  border-color: var(--accent);
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+button.danger {
+  color: var(--danger);
+}
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+#chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.msg {
+  max-width: 780px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: white;
+}
+.msg.ai {
+  align-self: flex-start;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.msg.thoughts {
+  align-self: flex-start;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 13px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  padding: 6px 12px;
+}
+.msg.system {
+  align-self: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.msg .role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+#trainPanel {
+  padding: 12px 24px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  display: none;
+  gap: 10px;
+  align-items: center;
+}
+#trainPanel.visible {
+  display: flex;
+}
+#trainPanel input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+  outline: none;
+}
+#inputRow {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+  background: var(--panel);
+}
+#inputRow input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font: inherit;
+  outline: none;
+}
+#inputRow input:focus {
+  border-color: var(--accent);
+}
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0 0;
+}
+</style>
+</head>
+<body>
+<header>
+  <div>MYCOR AI <span class="tag">v5.0 — Top-K/Top-P · Adaptive N-gram · Binary Weights</span></div>
+  <div>
+    <button id="langBtn" style="padding:4px 10px;font-size:12px">EN / RU</button>
+  </div>
+</header>
+<div id="app">
+  <aside id="sidebar">
+    <div class="panel">
+      <h3>Statistics</h3>
+      <div id="stats"></div>
+    </div>
+    <div class="panel">
+      <h3>Sampling</h3>
+      <div class="control">
+        <label>Temperature <b id="tempVal">0.70</b></label>
+        <input id="temp" type="range" min="0.1" max="1.5" step="0.05" value="0.7">
+      </div>
+      <div class="control">
+        <label>Top-K <b id="topkVal">40</b></label>
+        <input id="topk" type="range" min="0" max="200" step="1" value="40">
+      </div>
+      <div class="control">
+        <label>Top-P <b id="toppVal">0.90</b></label>
+        <input id="topp" type="range" min="0" max="1" step="0.01" value="0.9">
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Learning</h3>
+      <div class="control">
+        <label>Learning Rate <b id="lrVal">0.50</b></label>
+        <input id="lr" type="range" min="0.01" max="1.0" step="0.01" value="0.5">
+      </div>
+      <div class="control">
+        <label>Momentum <b id="momVal">0.90</b></label>
+        <input id="mom" type="range" min="0" max="0.99" step="0.01" value="0.9">
+      </div>
+      <div class="control">
+        <label>Context Size <b id="ctxVal">2</b></label>
+        <input id="ctx" type="range" min="1" max="5" step="1" value="2">
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Actions</h3>
+      <div class="actions">
+        <button id="undoBtn">Undo</button>
+        <button id="resetBtn" class="danger">Reset</button>
+        <button id="idleBtn">Idle</button>
+        <button id="importBtn">Import</button>
+      </div>
+    </div>
+  </aside>
+  <main id="chat">
+    <div id="messages"></div>
+    <div id="trainPanel">
+      <span style="color:var(--muted);font-size:13px">Teach correction:</span>
+      <input id="trainInput" placeholder="Type the correct answer, or leave empty to skip">
+      <button id="trainSend" class="primary">Train</button>
+      <button id="trainSkip">Skip</button>
+    </div>
+    <div id="inputRow">
+      <input id="input" placeholder="Type a message and press Enter..." autocomplete="off">
+      <button id="send" class="primary">Send</button>
+    </div>
+  </main>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const messages = $("#messages");
+let lastPrompt = "";
+let pendingTrain = false;
+let idleEnabled = true;
+
+function appendMsg(cls, role, text) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  if (role) {
+    const r = document.createElement("div");
+    r.className = "role";
+    r.textContent = role;
+    div.appendChild(r);
+  }
+  const t = document.createElement("div");
+  t.textContent = text;
+  div.appendChild(t);
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+  return div;
+}
+
+async function api(path, body, method) {
+  const opts = { method: method || (body ? "POST" : "GET") };
+  if (body) {
+    opts.headers = { "Content-Type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
+async function sendMessage() {
+  const input = $("#input");
+  const text = input.value.trim();
+  if (!text) return;
+  if (text === "exit") {
+    appendMsg("system", "", "Session saved. You may close this tab.");
+    input.value = "";
+    return;
+  }
+  input.value = "";
+  appendMsg("user", "You", text);
+  lastPrompt = text;
+
+  try {
+    const data = await api("/api/chat", { message: text });
+    if (data.thoughts) {
+      appendMsg("thoughts", "", "MYCOR thoughts: " + data.thoughts);
+    }
+    appendMsg("ai", "AI", data.reply || "(no answer)");
+    pendingTrain = true;
+    $("#trainPanel").classList.add("visible");
+    $("#trainInput").focus();
+  } catch (e) {
+    appendMsg("system", "", "Error: " + e.message);
+  }
+}
+
+async function submitTrain(skip) {
+  if (!pendingTrain) return;
+  const input = $("#trainInput");
+  const target = skip ? "" : input.value.trim();
+  pendingTrain = false;
+  input.value = "";
+  $("#trainPanel").classList.remove("visible");
+  if (!target) return;
+  try {
+    const data = await api("/api/train", { prompt: lastPrompt, target });
+    if (data.hasLoss) {
+      appendMsg("system", "", "Loss: " + data.loss.toFixed(4));
+    }
+    refreshStats();
+  } catch (e) {
+    appendMsg("system", "", "Error: " + e.message);
+  }
+}
+
+async function refreshStats() {
+  try {
+    const s = await api("/api/stats");
+    const el = $("#stats");
+    el.innerHTML = "";
+    const rows = [
+      ["Vocabulary", s.vocabulary],
+      ["Parameters", s.parameters],
+      ["Thinking", s.thinking ? "ON" : "OFF"],
+      ["Context", s.contextSize + " words"],
+    ];
+    for (const pair of rows) {
+      const row = document.createElement("div");
+      row.className = "stat-row";
+      row.innerHTML = "<span>" + pair[0] + "</span><span>" + pair[1] + "</span>";
+      el.appendChild(row);
+    }
+    if (s.vocabulary < s.minThinking) {
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent = "Thinking unlocks at " + s.minThinking + " words.";
+      el.appendChild(hint);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function bindSlider(id, labelId, fmt, apply) {
+  const el = $(id);
+  const lab = $(labelId);
+  const update = () => {
+    const v = parseFloat(el.value);
+    lab.textContent = fmt(v);
+    apply(v);
+  };
+  el.addEventListener("input", update);
+  return el;
+}
+
+async function pushConfig(key, value) {
+  try {
+    await api("/api/config", { [key]: value });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+const tempSlider = bindSlider("#temp", "#tempVal", v => v.toFixed(2), v => pushConfig("temperature", v));
+const topkSlider = bindSlider("#topk", "#topkVal", v => Math.round(v).toString(), v => pushConfig("topK", Math.round(v)));
+const toppSlider = bindSlider("#topp", "#toppVal", v => v.toFixed(2), v => pushConfig("topP", v));
+const lrSlider = bindSlider("#lr", "#lrVal", v => v.toFixed(2), v => pushConfig("learningRate", v));
+const momSlider = bindSlider("#mom", "#momVal", v => v.toFixed(2), v => pushConfig("momentum", v));
+const ctxSlider = bindSlider("#ctx", "#ctxVal", v => Math.round(v).toString(), v => pushConfig("contextSize", Math.round(v)));
+
+async function loadConfig() {
+  try {
+    const s = await api("/api/stats");
+    tempSlider.value = s.temperature;
+    $("#tempVal").textContent = s.temperature.toFixed(2);
+    topkSlider.value = s.topK;
+    $("#topkVal").textContent = s.topK;
+    toppSlider.value = s.topP;
+    $("#toppVal").textContent = s.topP.toFixed(2);
+    lrSlider.value = s.learningRate;
+    $("#lrVal").textContent = s.learningRate.toFixed(2);
+    momSlider.value = s.momentum;
+    $("#momVal").textContent = s.momentum.toFixed(2);
+    ctxSlider.value = s.contextSize;
+    $("#ctxVal").textContent = s.contextSize;
+    idleEnabled = s.idleEnabled;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+$("#send").addEventListener("click", sendMessage);
+$("#input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+$("#trainSend").addEventListener("click", () => submitTrain(false));
+$("#trainSkip").addEventListener("click", () => submitTrain(true));
+$("#trainInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    submitTrain(false);
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    submitTrain(true);
+  }
+});
+
+$("#undoBtn").addEventListener("click", async () => {
+  const r = await api("/api/undo", {});
+  appendMsg("system", "", r.ok ? "Last training undone." : "Nothing to undo.");
+  refreshStats();
+});
+
+$("#resetBtn").addEventListener("click", async () => {
+  if (!confirm("Erase the brain and reset configuration?")) return;
+  await api("/api/reset", {});
+  appendMsg("system", "", "Brain erased and configuration reset.");
+  refreshStats();
+});
+
+$("#idleBtn").addEventListener("click", async () => {
+  idleEnabled = !idleEnabled;
+  await api("/api/config", { idleEnabled });
+  appendMsg("system", "", "Idle thinking " + (idleEnabled ? "enabled" : "disabled") + ".");
+});
+
+$("#importBtn").addEventListener("click", async () => {
+  const path = prompt("Path to TXT file:");
+  if (!path) return;
+  try {
+    const r = await api("/api/import", { path });
+    appendMsg("system", "", "Imported. Vocabulary: " + r.vocabulary + ", Parameters: " + r.parameters);
+    refreshStats();
+  } catch (e) {
+    appendMsg("system", "", "Import failed: " + e.message);
+  }
+});
+
+$("#langBtn").addEventListener("click", async () => {
+  const next = document.documentElement.lang === "ru" ? "en" : "ru";
+  await api("/api/lang", { lang: next });
+  document.documentElement.lang = next;
+  appendMsg("system", "", next === "ru" ? "Язык изменён на русский." : "Language switched to English.");
+});
+
+async function pollIdle() {
+  try {
+    const r = await api("/api/idle");
+    if (r.thought) {
+      appendMsg("thoughts", "", "Idle thought: " + r.thought);
+    }
+  } catch (e) {
+    // сервер недоступен — просто пропускаем тик
+  }
+  setTimeout(pollIdle, 2000);
+}
+
+refreshStats();
+loadConfig();
+pollIdle();
+setInterval(refreshStats, 5000);
+appendMsg("system", "", "Welcome to MYCOR AI v5.0. The model starts blank. Chat, then teach it the correct answer to grow its brain.");
+</script>
+</body>
+</html>
