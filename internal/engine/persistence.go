@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,9 +21,10 @@ func loadBrain(path string) error {
 	}
 
 	var loaded BrainModel
-	if err := json.Unmarshal(data, &loaded); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
+	if err := decodeBrain(data, &loaded); err != nil {
+		return err
 	}
+
 	if len(loaded.Vocabulary) == 0 {
 		return errors.New("empty vocabulary")
 	}
@@ -109,6 +112,23 @@ func loadBrain(path string) error {
 	return nil
 }
 
+func decodeBrain(data []byte, model *BrainModel) error {
+	if len(data) == 0 {
+		return errors.New("empty file")
+	}
+	if data[0] == '{' {
+		if err := json.Unmarshal(data, model); err != nil {
+			return fmt.Errorf("invalid JSON: %w", err)
+		}
+		return nil
+	}
+	dec := gob.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(model); err != nil {
+		return fmt.Errorf("invalid gob: %w", err)
+	}
+	return nil
+}
+
 func SaveBrain(path string) error {
 	model := BrainModel{
 		Version:    modelVersion,
@@ -116,8 +136,10 @@ func SaveBrain(path string) error {
 		Weights:    weights,
 		Velocity:   velocity,
 	}
-	data, err := json.MarshalIndent(model, "", "  ")
-	if err != nil {
+
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	if err := enc.Encode(&model); err != nil {
 		return err
 	}
 
@@ -129,7 +151,7 @@ func SaveBrain(path string) error {
 	}
 
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, buf.Bytes(), 0644); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {

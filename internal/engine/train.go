@@ -15,6 +15,20 @@ func TrainBatch(prompt, target string) float64 {
 	return train(prompt, target)
 }
 
+func buildContext(history []string, n int) []string {
+	ctx := make([]string, n)
+	start := len(history) - n
+	for i := 0; i < n; i++ {
+		pos := start + i
+		if pos < 0 {
+			ctx[i] = unkToken
+		} else {
+			ctx[i] = history[pos]
+		}
+	}
+	return ctx
+}
+
 func train(prompt, target string) float64 {
 	promptWords := Tokenize(prompt)
 	targetWords := Tokenize(target)
@@ -72,16 +86,17 @@ func train(prompt, target string) float64 {
 		}
 	}
 
-	if len(promptWords) >= 2 {
-		trainStep(MakeContextKey(unkToken, promptWords[0]), promptWords[1])
-	}
+	contextSize := currentContextSize()
+	history := make([]string, 0, len(promptWords)+len(targetWords))
+	history = append(history, promptWords...)
+	history = append(history, targetWords...)
 
-	w1, w2 := initialContext(promptWords)
-	for _, nextWord := range targetWords {
-		for _, ctx := range backoffChain(w1, w2) {
-			trainStep(ctx, nextWord)
+	for i := len(promptWords); i < len(history); i++ {
+		targetWord := history[i]
+		ctx := buildContext(history[:i], contextSize)
+		for _, key := range backoffChain(resolveContext(ctx)) {
+			trainStep(key, targetWord)
 		}
-		w1, w2 = w2, nextWord
 	}
 
 	if steps == 0 {

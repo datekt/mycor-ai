@@ -1,11 +1,11 @@
 /*
 Package config holds runtime tunables for MYCOR.
 
-Values are plain package-level variables with no accessors. The CLI writes
-to them directly when the user runs /temp, /lr, /momentum, or /idle. The
-engine reads them on every training and generation step, so changes take
-effect immediately without restarting. Reset restores every tunable to its
-documented default, which /reset relies on.
+Values are plain package-level variables with no accessors. The web server
+writes to them directly through its JSON API when the user moves a slider.
+The engine reads them on every training and generation step, so changes
+take effect immediately without restarting. Reset restores every tunable
+to its documented default.
 */
 package config
 
@@ -17,6 +17,11 @@ const (
 	DefaultWeightDecay       = 0.0001
 	DefaultIdleTimeoutSec    = 45
 	DefaultIdleEnabled       = true
+	DefaultTopK              = 40
+	DefaultTopP              = 0.9
+	DefaultContextSize       = 2
+	MinContextSize           = 1
+	MaxContextSize           = 5
 )
 
 var (
@@ -27,6 +32,9 @@ var (
 	WeightDecay       = DefaultWeightDecay
 	IdleTimeoutSec    = DefaultIdleTimeoutSec
 	IdleEnabled       = DefaultIdleEnabled
+	TopK              = DefaultTopK
+	TopP              = DefaultTopP
+	ContextSize       = DefaultContextSize
 )
 
 func Reset() {
@@ -37,4 +45,7 @@ func Reset() {
 	WeightDecay = DefaultWeightDecay
 	IdleTimeoutSec = DefaultIdleTimeoutSec
 	IdleEnabled = DefaultIdleEnabled
+	TopK = DefaultTopK
+	TopP = DefaultTopP
+	ContextSize = DefaultContextSize
 }

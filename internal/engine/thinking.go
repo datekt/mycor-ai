@@ -4,24 +4,6 @@ import (
 	"mycor/internal/config"
 )
 
-func initialContext(words []string) (string, string) {
-	var w1, w2 string
-	if len(words) >= 2 {
-		w1 = words[len(words)-2]
-		w2 = words[len(words)-1]
-	} else {
-		w1 = unkToken
-		w2 = words[len(words)-1]
-	}
-	if _, ok := WordToIdx[w1]; !ok {
-		w1 = unkToken
-	}
-	if _, ok := WordToIdx[w2]; !ok {
-		w2 = unkToken
-	}
-	return w1, w2
-}
-
 func think(prompt string) []string {
 	if len(Vocabulary) < MinVocabForThinking {
 		return nil
@@ -31,12 +13,16 @@ func think(prompt string) []string {
 		return nil
 	}
 
-	w1, w2 := initialContext(words)
+	contextSize := currentContextSize()
+	history := make([]string, len(words))
+	copy(history, words)
+
 	thoughts := make([]string, 0, thinkingSteps)
 	usedWords := map[int]bool{0: true}
 
 	for i := 0; i < thinkingSteps; i++ {
-		idx, ok := sampleNextIndex(w1, w2, usedWords, config.Temperature)
+		ctx := buildContext(history, contextSize)
+		idx, ok := sampleNextIndex(ctx, usedWords, config.Temperature)
 		if !ok {
 			break
 		}
@@ -46,10 +32,10 @@ func think(prompt string) []string {
 		}
 		thoughts = append(thoughts, nextWord)
 		usedWords[idx] = true
+		history = append(history, nextWord)
 		if nextWord == "." || nextWord == "?" || nextWord == "!" {
 			break
 		}
-		w1, w2 = w2, nextWord
 	}
 	return thoughts
 }

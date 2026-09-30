@@ -27,13 +27,16 @@ func generate(prompt string, maxLen int) string {
 		return "..."
 	}
 
-	w1, w2 := initialContext(words)
+	contextSize := currentContextSize()
+	history := make([]string, len(words))
+	copy(history, words)
 
 	result := make([]string, 0, maxLen)
 	usedWords := make(map[int]bool)
 
 	for i := 0; i < maxLen; i++ {
-		idx, ok := sampleNextIndex(w1, w2, usedWords, config.Temperature)
+		ctx := buildContext(history, contextSize)
+		idx, ok := sampleNextIndex(ctx, usedWords, config.Temperature)
 		if !ok {
 			if len(Vocabulary) > 1 {
 				pick := rand.Intn(len(Vocabulary)-1) + 1
@@ -43,7 +46,7 @@ func generate(prompt string, maxLen int) string {
 				}
 				result = append(result, nextWord)
 				usedWords[pick] = true
-				w1, w2 = w2, nextWord
+				history = append(history, nextWord)
 				continue
 			}
 			break
@@ -55,11 +58,11 @@ func generate(prompt string, maxLen int) string {
 		}
 		result = append(result, nextWord)
 		usedWords[idx] = true
+		history = append(history, nextWord)
 
 		if nextWord == "." || nextWord == "?" || nextWord == "!" {
 			break
 		}
-		w1, w2 = w2, nextWord
 	}
 
 	return JoinWords(result)

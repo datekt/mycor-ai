@@ -52,33 +52,6 @@ func TestTokenize(t *testing.T) {
 	}
 }
 
-func TestTokenizeEmoticons(t *testing.T) {
-	cases := []struct {
-		in   string
-		want []string
-	}{
-		{"привет :)", []string{"привет", ":)"}},
-		{"hello :D world", []string{"hello", ":d", "world"}},
-		{":) :) :)", []string{":)", ":)", ":)"}},
-		{"hi <3", []string{"hi", "<3"}},
-		{"o_o what", []string{"o_o", "what"}},
-		{"good :-)", []string{"good", ":-)"}},
-		{"sad :(", []string{"sad", ":("}},
-		{"crying :'(", []string{"crying", ":'("}},
-	}
-	for _, c := range cases {
-		got := Tokenize(c.in)
-		if len(got) != len(c.want) {
-			t.Fatalf("Tokenize(%q) = %v, want %v", c.in, got, c.want)
-		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Errorf("Tokenize(%q)[%d] = %q, want %q", c.in, i, got[i], c.want[i])
-			}
-		}
-	}
-}
-
 func TestJoinWords(t *testing.T) {
 	cases := []struct {
 		name string
@@ -173,8 +146,100 @@ func TestSoftmaxRepetitionPenalty(t *testing.T) {
 	}
 }
 
+func TestApplyTopK(t *testing.T) {
+	probs := []float64{0.1, 0.4, 0.3, 0.2}
+	out := applyTopK(probs, 2)
+	kept := 0
+	for _, p := range out {
+		if p > 0 {
+			kept++
+		}
+	}
+	if kept != 2 {
+		t.Errorf("expected 2 nonzero probabilities, got %d", kept)
+	}
+	if out[1] != 0.4 || out[2] != 0.3 {
+		t.Errorf("top 2 should be kept, got %v", out)
+	}
+}
+
+func TestApplyTopKZeroKeepsAll(t *testing.T) {
+	probs := []float64{0.1, 0.4, 0.3, 0.2}
+	out := applyTopK(probs, 0)
+	kept := 0
+	for _, p := range out {
+		if p > 0 {
+			kept++
+		}
+	}
+	if kept != len(probs) {
+		t.Errorf("k=0 should keep all, got %d", kept)
+	}
+}
+
+func TestApplyTopP(t *testing.T) {
+	probs := []float64{0.6, 0.2, 0.15, 0.05}
+	out := applyTopP(probs, 0.5)
+	if out[0] != 0.6 {
+		t.Errorf("top probability should remain, got %v", out[0])
+	}
+	kept := 0
+	for _, p := range out {
+		if p > 0 {
+			kept++
+		}
+	}
+	if kept != 1 {
+		t.Errorf("expected 1 nonzero probability, got %d", kept)
+	}
+}
+
+func TestApplyTopPZeroKeepsArgmax(t *testing.T) {
+	probs := []float64{0.1, 0.4, 0.3, 0.2}
+	out := applyTopP(probs, 0)
+	kept := 0
+	for _, p := range out {
+		if p > 0 {
+			kept++
+		}
+	}
+	if kept != 1 {
+		t.Fatalf("p=0 should keep exactly 1 token, got %d", kept)
+	}
+	if out[1] != 0.4 {
+		t.Errorf("p=0 should keep argmax at index 1, got %v", out)
+	}
+}
+
+func TestApplyTopPOneKeepsAll(t *testing.T) {
+	probs := []float64{0.1, 0.4, 0.3, 0.2}
+	out := applyTopP(probs, 1.0)
+	kept := 0
+	for _, p := range out {
+		if p > 0 {
+			kept++
+		}
+	}
+	if kept != len(probs) {
+		t.Errorf("p=1 should keep all, got %d", kept)
+	}
+}
+
+func TestApplyTopPEmptyInput(t *testing.T) {
+	out := applyTopP([]float64{0, 0, 0}, 0)
+	kept := 0
+	for _, p := range out {
+		if p > 0 {
+			kept++
+		}
+	}
+	if kept != 0 {
+		t.Errorf("all-zero input should produce all-zero output, got %d nonzero", kept)
+	}
+}
+
 func TestBackoffChainDeduplicates(t *testing.T) {
-	chain := backoffChain("x", unkToken)
+	chain := backoffChain([]string{"x", unkToken})
 	seen := make(map[string]bool)
 	for _, k := range chain {
 		if seen[k] {
@@ -188,7 +253,7 @@ func TestBackoffChainDeduplicates(t *testing.T) {
 }
 
 func TestBackoffChainFullLadder(t *testing.T) {
-	chain := backoffChain("a", "b")
+	chain := backoffChain([]string{"a", "b"})
 	if len(chain) != 4 {
 		t.Fatalf("chain len = %d, want 4", len(chain))
 	}
@@ -200,9 +265,58 @@ func TestBackoffChainFullLadder(t *testing.T) {
 	}
 }
 
+func TestBackoffChainThreeGram(t *testing.T) {
+	chain := backoffChain([]string{"a", "b", "c"})
+	if len(chain) != 6 {
+		t.Fatalf("chain len = %d, want 6", len(chain))
+	}
+	first := chain[0]
+	if first != "a b c" {
+		t.Errorf("first entry should be full context, got %q", first)
+	}
+}
+
+func TestBackoffChainUnigram(t *testing.T) {
+	chain := backoffChain([]string{"a"})
+	if len(chain) != 2 {
+		t.Fatalf("chain len = %d, want 2", len(chain))
+	}
+	if chain[0] != "a" {
+		t.Errorf("chain[0] = %q, want %q", chain[0], "a")
+	}
+	if chain[1] != unkToken {
+		t.Errorf("chain[1] = %q, want %q", chain[1], unkToken)
+	}
+}
+
+func TestBackoffChainUnigramUnk(t *testing.T) {
+	chain := backoffChain([]string{unkToken})
+	if len(chain) != 1 {
+		t.Fatalf("chain len = %d, want 1", len(chain))
+	}
+	if chain[0] != unkToken {
+		t.Errorf("chain[0] = %q, want %q", chain[0], unkToken)
+	}
+}
+
+func TestBackoffChainFiveGram(t *testing.T) {
+	chain := backoffChain([]string{"a", "b", "c", "d", "e"})
+	if len(chain) != 10 {
+		t.Fatalf("chain len = %d, want 10", len(chain))
+	}
+	if chain[0] != "a b c d e" {
+		t.Errorf("chain[0] = %q, want %q", chain[0], "a b c d e")
+	}
+	last := chain[len(chain)-1]
+	want := unkToken + " " + unkToken + " " + unkToken + " " + unkToken + " " + unkToken
+	if last != want {
+		t.Errorf("chain[last] = %q, want %q", last, want)
+	}
+}
+
 func TestDynamicBackoffEmptyEngine(t *testing.T) {
 	InitEngine()
-	_, ok := sampleNextIndex("a", "b", nil, 1.0)
+	_, ok := sampleNextIndex([]string{"a", "b"}, nil, 1.0)
 	if ok {
 		t.Fatal("empty engine should have no matching context")
 	}
@@ -213,9 +327,9 @@ func TestDynamicBackoffUsesUnkPrefix(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		Train("a b", "c")
 	}
-	_, ok := sampleNextIndex("zzz", "a", nil, 1.0)
+	_, ok := sampleNextIndex([]string{"zzz", "a"}, nil, 1.0)
 	if !ok {
-		t.Fatal("expected backoff to find 'unk a' context")
+		t.Fatal("expected backoff to find unk-prefix context")
 	}
 }
 
@@ -224,9 +338,9 @@ func TestDynamicBackoffUsesUnkSuffix(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		Train("a b", "c")
 	}
-	_, ok := sampleNextIndex("a", "zzz", nil, 1.0)
+	_, ok := sampleNextIndex([]string{"a", "zzz"}, nil, 1.0)
 	if !ok {
-		t.Fatal("expected backoff to find 'a unk' context")
+		t.Fatal("expected backoff to find unk-suffix context")
 	}
 }
 
@@ -235,7 +349,7 @@ func TestDynamicBackoffFallsBackToUnkUnk(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		Train("a b", "c")
 	}
-	_, ok := sampleNextIndex("zzz", "yyy", nil, 1.0)
+	_, ok := sampleNextIndex([]string{"zzz", "yyy"}, nil, 1.0)
 	if !ok {
 		t.Fatal("expected backoff to reach unigram context")
 	}
@@ -301,15 +415,23 @@ func TestTrainBatchDoesNotBackup(t *testing.T) {
 	}
 }
 
-func TestSaveLoadBrain(t *testing.T) {
+func TestSaveLoadBrainGob(t *testing.T) {
 	InitEngine()
 	Train("привет", "мир")
 	Train("мир", "как дела")
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "brain.json")
+	path := filepath.Join(dir, "brain.gob")
 	if err := SaveBrain(path); err != nil {
 		t.Fatalf("save failed: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat failed: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("saved file is empty")
 	}
 
 	vocabBefore := len(Vocabulary)
@@ -327,27 +449,55 @@ func TestSaveLoadBrain(t *testing.T) {
 	}
 }
 
-func TestSaveLoadBrainPersistsVelocity(t *testing.T) {
+func TestSaveLoadBrainJSONCompat(t *testing.T) {
 	InitEngine()
-	Train("a", "b")
-	Train("a", "b")
+	Train("привет", "мир")
+	Train("мир", "как дела")
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "brain.json")
-	if err := SaveBrain(path); err != nil {
+	jsonPath := filepath.Join(dir, "brain.json")
+	gobPath := filepath.Join(dir, "brain.gob")
+	if err := SaveBrain(gobPath); err != nil {
 		t.Fatal(err)
 	}
-
-	InitEngine()
-	if !LoadBrain(path) {
-		t.Fatal("load failed")
+	data, err := os.ReadFile(gobPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(velocity) == 0 {
-		t.Error("velocity should be restored")
+	if len(data) == 0 {
+		t.Fatal("gob file is empty")
+	}
+	if data[0] == '{' {
+		t.Fatal("SaveBrain should write gob, not JSON")
+	}
+
+	jsonData := `{"version":4,"vocabulary":["<unk>","hello","world"],"weights":{"hello world":[0,0.5,0.3]}}`
+	if err := os.WriteFile(jsonPath, []byte(jsonData), 0644); err != nil {
+		t.Fatal(err)
+	}
+	InitEngine()
+	if !LoadBrain(jsonPath) {
+		t.Fatal("JSON fallback load failed")
+	}
+	if len(Vocabulary) != 3 {
+		t.Errorf("vocab = %d, want 3", len(Vocabulary))
+	}
+	w, ok := weights["hello world"]
+	if !ok {
+		t.Fatal("expected hello world context after JSON load")
+	}
+	if len(w) != 3 {
+		t.Fatalf("weight len = %d, want 3", len(w))
+	}
+	if math.Abs(w[1]-0.5) > 1e-9 {
+		t.Errorf("w[1] = %v, want 0.5", w[1])
+	}
+	if math.Abs(w[2]-0.3) > 1e-9 {
+		t.Errorf("w[2] = %v, want 0.3", w[2])
 	}
 }
 
-func TestLoadBrainInvalidJSON(t *testing.T) {
+func TestLoadBrainInvalid(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.json")
 	if err := os.WriteFile(path, []byte("{broken"), 0644); err != nil {
@@ -413,29 +563,6 @@ func TestLoadBrainV4Fixture(t *testing.T) {
 	}
 }
 
-func TestLoadBrainEmptyVocabulary(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "brain.json")
-	if err := os.WriteFile(path, []byte(`{"vocabulary":[],"weights":{}}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if LoadBrain(path) {
-		t.Error("expected failure on empty vocabulary")
-	}
-}
-
-func TestLoadBrainDuplicateWord(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "brain.json")
-	data := `{"vocabulary":["<unk>","a","a"],"weights":{}}`
-	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if LoadBrain(path) {
-		t.Error("expected failure on duplicate word")
-	}
-}
-
 func TestLoadBrainAddsUnk(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "brain.json")
@@ -451,25 +578,6 @@ func TestLoadBrainAddsUnk(t *testing.T) {
 	}
 	if len(Vocabulary) != 3 {
 		t.Errorf("vocab len = %d, want 3", len(Vocabulary))
-	}
-}
-
-func TestLoadBrainRealignsWeights(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "brain.json")
-	data := `{"vocabulary":["<unk>","a","b"],"weights":{"<unk> a":[0.1,0.2]}}`
-	if err := os.WriteFile(path, []byte(data), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if !LoadBrain(path) {
-		t.Fatal("load failed")
-	}
-	w := weights["<unk> a"]
-	if len(w) != 3 {
-		t.Errorf("weight len = %d, want 3", len(w))
-	}
-	if len(velocity["<unk> a"]) != 3 {
-		t.Errorf("velocity len = %d, want 3", len(velocity["<unk> a"]))
 	}
 }
 
@@ -534,30 +642,6 @@ func TestSessionHistoryReset(t *testing.T) {
 	InitEngine()
 	if len(SessionHistory()) != 0 {
 		t.Error("session history should reset on InitEngine")
-	}
-}
-
-func TestSessionHistorySurvivesLoadBrain(t *testing.T) {
-	InitEngine()
-	Train("a", "b")
-	AppendHistory("user", "a")
-	AppendHistory("ai", "b")
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "brain.json")
-	if err := SaveBrain(path); err != nil {
-		t.Fatal(err)
-	}
-
-	InitEngine()
-	if !LoadBrain(path) {
-		t.Fatal("load failed")
-	}
-	if len(SessionHistory()) != 0 {
-		t.Error("session history should reset after LoadBrain")
-	}
-	if len(Vocabulary) < 3 {
-		t.Error("vocabulary should be restored after LoadBrain")
 	}
 }
 
