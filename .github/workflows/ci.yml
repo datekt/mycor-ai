@@ -10,13 +10,13 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }}
+  test-unix:
+    name: Test with race on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +36,29 @@ jobs:
 
       - name: Build
         run: go build -trimpath -o mycor ./cmd/mycor
+
+  test-windows:
+    name: Test on windows-latest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -trimpath -o mycor.exe ./cmd/mycor
 
   quality:
     name: Format and vet
