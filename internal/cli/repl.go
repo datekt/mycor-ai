@@ -1,6 +1,12 @@
 /*
 Package cli implements the MYCOR interactive terminal.
 
+This package is a legacy v4.x entry point. Since v5.0 the default binary
+launches a local web server instead (see internal/web) and this REPL is
+not compiled into it. It is kept for reference and could be revived as a
+separate cmd/mycor-cli binary if needed. The v5.0 engine API is fully
+compatible with it, so the code still compiles and runs.
+
 The CLI owns the REPL loop, the language selection prompt, the help panel,
 and the idle ticker. It talks to the engine only through the public API
 exposed by mycor/internal/engine and never touches weights directly.
@@ -31,7 +37,7 @@ func Run() {
 
 	engine.InitEngine()
 
-	fmt.Println("MYCOR AI v4.5")
+	fmt.Println("MYCOR AI v5.0 (legacy CLI)")
 	if engine.LoadBrain(brainFile) {
 		fmt.Println(m.BrainLoaded)
 		fmt.Printf(m.BrainLoadedInfo+"\n", len(engine.Vocabulary), engine.CountParameters())

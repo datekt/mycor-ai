@@ -14,7 +14,7 @@ var en = Messages{
 	BrainLoadedInfo:  "Vocabulary: %d | Parameters: %d",
 	ThinkingEnabled:  "Vocabulary is large enough for thinking mode.",
 	SessionReset:     "Session history is empty. Training is persisted to disk.",
-	HelpHeader:       "\nMYCOR AI v4.5 CONTROL PANEL:",
+	HelpHeader:       "\nMYCOR AI v5.0 CONTROL PANEL:",
 	HelpHelp:         "  /help              - Show this command list",
 	HelpStats:        "  /stats             - Show top synapse connections",
 	HelpHistory:      "  /history           - Show current session history",

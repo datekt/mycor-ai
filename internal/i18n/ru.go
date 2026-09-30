@@ -14,7 +14,7 @@ var ru = Messages{
 	BrainLoadedInfo:  "Слов: %d | Параметров: %d",
 	ThinkingEnabled:  "Словарь достаточен для режима размышления.",
 	SessionReset:     "История сессии пуста. Обучение сохранено на диск.",
-	HelpHeader:       "\nПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v4.5:",
+	HelpHeader:       "\nПАНЕЛЬ УПРАВЛЕНИЯ MYCOR AI v5.0:",
 	HelpHelp:         "  /help              - Показать список команд",
 	HelpStats:        "  /stats             - Топ связей в синапсах",
 	HelpHistory:      "  /history           - История текущей сессии",
