@@ -115,26 +115,75 @@ func resolveImportPath(raw string, roots []string) (string, error) {
 	return abs, nil
 }
 
-// withinAnyRoot reports whether target is inside at least one root. The
-// comparison is path-component aware, so "C:\Users\me\DocumentsEvil" is not
-// considered to be inside "C:\Users\me\Documents".
+// withinAnyRoot reports whether target is inside at least one root.
+//
+// The comparison has to be path-component aware so that
+// "C:\Users\me\DocumentsEvil" is not treated as inside "C:\Users\me\Documents",
+// and it has to survive path rewriting: the caller resolves the target through
+// symlinks first, so the roots are canonicalised the same way. Otherwise a
+// symlinked temporary directory (/tmp -> /private/tmp, or a $TMPDIR pointing
+// through a link) makes a file inside a root look like it is outside it.
+//
+// os.SameFile is consulted as a fallback because it compares the underlying
+// inode and therefore also tolerates case and 8.3 name differences on Windows.
 func withinAnyRoot(target string, roots []string) bool {
 	if len(roots) == 0 {
 		return false
 	}
 	for _, root := range roots {
-		cleanRoot, err := filepath.Abs(root)
+		cleanRoot, err := canonicalPath(root)
 		if err != nil {
 			continue
 		}
-		cleanRoot = filepath.Clean(cleanRoot)
 		rel, err := filepath.Rel(cleanRoot, target)
-		if err != nil {
-			continue
+		if err == nil && (rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))) {
+			return true
 		}
-		if rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)) {
+		if containsDir(target, cleanRoot) {
 			return true
 		}
 	}
 	return false
+}
+
+// canonicalPath makes a path absolute, cleaned and symlink-resolved. A path
+// that does not exist yet is still normalised, it just cannot be resolved.
+func canonicalPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	return abs, nil
+}
+
+// containsDir walks from target up to the filesystem root and reports whether
+// dir is one of the ancestors, comparing directory identities rather than
+// path strings.
+func containsDir(target, dir string) bool {
+	targetInfo, err := os.Stat(target)
+	if err != nil {
+		return false
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	for cur := targetInfo; ; {
+		if os.SameFile(cur, dirInfo) {
+			return true
+		}
+		parent := filepath.Dir(cur.Name())
+		if parent == cur.Name() {
+			return false
+		}
+		next, err := os.Stat(parent)
+		if err != nil {
+			return false
+		}
+		cur = next
+	}
 }

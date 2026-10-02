@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -487,6 +489,49 @@ func TestWithinAnyRootIsComponentAware(t *testing.T) {
 	}
 }
 
+// The caller resolves the target through symlinks before checking it against
+// the roots, so the roots have to be resolved the same way. Otherwise a file
+// that plainly lives inside an allowed root is rejected whenever the path
+// traverses a symlink, which is exactly what happens with a symlinked
+// temporary directory (/tmp -> /private/tmp on macOS, $TMPDIR through a link).
+func TestImportAllowedThroughSymlinkedRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks on Windows requires elevated privileges")
+	}
+	base := t.TempDir()
+	realDir := filepath.Join(base, "real")
+	if err := os.MkdirAll(realDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(base, "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	path := filepath.Join(linkDir, "notes.txt")
+	if err := os.WriteFile(path, []byte("a\nb\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The allow-list holds the link, the request comes in through the link.
+	if _, err := resolveImportPath(path, []string{linkDir}); err != nil {
+		t.Errorf("file inside a symlinked root should be allowed: %v", err)
+	}
+	// The reverse direction must work too: allow-list holds the real path while
+	// the request arrives through the link.
+	if _, err := resolveImportPath(path, []string{realDir}); err != nil {
+		t.Errorf("file inside a symlinked root should be allowed: %v", err)
+	}
+	// A file that is genuinely outside must still be refused.
+	outside := filepath.Join(base, "elsewhere.txt")
+	if err := os.WriteFile(outside, []byte("a\nb\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveImportPath(outside, []string{linkDir}); err != ErrImportNotAllowed {
+		t.Errorf("err = %v, want ErrImportNotAllowed", err)
+	}
+}
+
 func TestImportEndpointRejectsOutsidePath(t *testing.T) {
 	_, h := newTestServer(t)
 	rec := postJSON(t, h, "/api/import", map[string]string{"path": "../../etc/passwd.txt"})
@@ -530,12 +575,12 @@ func TestChatRespondsDuringImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	importStatus := make(chan int, 1)
+	importResult := make(chan string, 1)
 	importDone := make(chan struct{})
 	go func() {
 		defer close(importDone)
 		rec := postJSON(t, h, "/api/import", map[string]string{"path": path})
-		importStatus <- rec.Code
+		importResult <- fmt.Sprintf("status %d: %s", rec.Code, rec.Body.String())
 	}()
 
 	// While the import runs, stats and chat must still answer promptly.
@@ -556,8 +601,10 @@ func TestChatRespondsDuringImport(t *testing.T) {
 	<-importDone
 	// Assert the import actually succeeded. Without this, a path rejected by
 	// the sandbox made the parameter check below fail for the wrong reason.
-	if code := <-importStatus; code != http.StatusOK {
-		t.Fatalf("import status = %d, want 200", code)
+	// The server's own message is included so a failure here is diagnosable
+	// from CI output alone.
+	if res := <-importResult; !strings.HasPrefix(res, "status 200") {
+		t.Fatalf("import failed: %s", res)
 	}
 	if srv.Brain().CountParameters() == 0 {
 		t.Error("import produced no parameters")
