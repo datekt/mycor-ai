@@ -46,7 +46,6 @@ const I18N = {
     messagePlaceholder: "Type a message and press Enter...",
     vocabulary: "Vocabulary", parameters: "Parameters", thinking: "Thinking",
     context: "Context", words: "words", on: "ON", off: "OFF",
-    thinkingHint: "Thinking unlocks at {n} words.",
     welcome: "Welcome to MYCOR AI. Chat, then teach it the correct answer to grow its brain.",
     sessionRestored: "Session restored.",
     undone: "Last training undone.",
@@ -63,7 +62,6 @@ const I18N = {
     importDone: "Imported {trained} examples. Vocabulary: {vocabulary}, Parameters: {parameters}.",
     importFail: "Import failed: {error}",
     errorPrefix: "Error: {error}",
-    brainFile: "Brain file: {path}",
     langSwitched: "Language switched to English.",
     serverGone: "Connection to the server was lost.",
     roleYou: "You", roleAI: "AI", roleTeacher: "Teacher",
@@ -81,7 +79,6 @@ const I18N = {
     messagePlaceholder: "Введите сообщение и нажмите Enter...",
     vocabulary: "Словарь", parameters: "Параметры", thinking: "Размышления",
     context: "Контекст", words: "слов", on: "ВКЛ", off: "ВЫКЛ",
-    thinkingHint: "Размышления включаются на {n} словах.",
     welcome: "Добро пожаловать в MYCOR AI. Поговорите с моделью, а затем научите её правильному ответу.",
     sessionRestored: "Сессия восстановлена.",
     undone: "Последнее обучение отменено.",
@@ -98,7 +95,6 @@ const I18N = {
     importDone: "Импортировано примеров: {trained}. Словарь: {vocabulary}, Параметры: {parameters}.",
     importFail: "Ошибка импорта: {error}",
     errorPrefix: "Ошибка: {error}",
-    brainFile: "Файл мозга: {path}",
     langSwitched: "Язык изменён на русский.",
     serverGone: "Соединение с сервером потеряно.",
     roleYou: "Вы", roleAI: "ИИ", roleTeacher: "Учитель",
@@ -130,6 +126,11 @@ function applyLanguage(next) {
     el.textContent = t(el.dataset.i18n);
   }
   for (const el of document.querySelectorAll("[data-i18n-placeholder]")) {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  }
+  localStorage.setItem(LANG_KEY, lang);
+}
+
 // ---------------------------------------------------------------------------
 // Messaging helpers
 // ---------------------------------------------------------------------------
@@ -213,12 +214,7 @@ async function syncHistory() {
     appendMsg("system", "", t("errorPrefix", { error: e.message }));
   }
 }
-    el.placeholder = t(el.dataset.i18nPlaceholder);
-  }
-  localStorage.setItem(LANG_KEY, lang);
-}
 
-// PLACEHOLDER_APP_JS_2
 // ---------------------------------------------------------------------------
 // Chat and training
 // ---------------------------------------------------------------------------
@@ -301,15 +297,6 @@ async function refreshStats() {
     row.append(left, right);
     el.appendChild(row);
   }
-  if (s.vocabulary < s.minThinking) {
-    const hint = document.createElement("div");
-    hint.className = "hint";
-    hint.textContent = t("thinkingHint", { n: s.minThinking });
-    el.appendChild(hint);
-  }
-  if (s.brainPath) {
-    $("#brainPath").textContent = t("brainFile", { path: s.brainPath });
-  }
 }
 // ---------------------------------------------------------------------------
 // Sliders
@@ -377,16 +364,8 @@ const sliders = [
   bindSlider("#think", "#thinkVal", "thinkingSteps", (v) => Math.round(v).toString(), (v) => Math.round(v)),
 ];
 
-// loadConfig pulls the persisted settings back into the UI. suppressPush stops
-// the programmatic assignment from echoing a change back to the server.
-async function loadConfig() {
-  try {
-    applyToSliders(await api("/api/config"));
-  } catch (e) {
-    console.error(e);
-  }
-}
-
+// applyToSliders pulls the persisted settings back into the UI. suppressPush
+// stops the programmatic assignment from echoing a change back to the server.
 function applyToSliders(cfg) {
   suppressPush = true;
   for (const { el, lab, fmt, key } of sliders) {
