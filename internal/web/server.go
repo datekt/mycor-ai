@@ -49,6 +49,12 @@ type Server struct {
 	configFile string
 	static     fs.FS
 
+	// importRoots is the allow-list of directories /api/import may read from.
+	// It is a field rather than a package-level value so tests can point it at
+	// their own temp directory instead of depending on where the platform
+	// happens to place it.
+	importRoots []string
+
 	idleMu       sync.Mutex
 	lastActivity time.Time
 
@@ -66,6 +72,7 @@ func NewServer(brainFile, configFile string) (*Server, error) {
 		brainFile:    brainFile,
 		configFile:   configFile,
 		static:       sub,
+		importRoots:  importRoots(),
 		lastActivity: time.Now(),
 	}
 	s.saver = newSaveDebouncer(2*time.Second, 15*time.Second, s.persist)

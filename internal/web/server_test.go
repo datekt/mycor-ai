@@ -197,7 +197,6 @@ func TestStatsEndpoint(t *testing.T) {
 	}
 }
 
-// PLACEHOLDER_WEB_TESTS_2
 func TestConfigEndpointUpdatesAndEchoes(t *testing.T) {
 	_, h := newTestServer(t)
 	rec := postJSON(t, h, "/api/config", map[string]float64{"temperature": 1.25})
@@ -400,7 +399,7 @@ pin the allow-list behaviour.
 */
 
 func TestResolveImportPathRejectsEmpty(t *testing.T) {
-	if _, err := resolveImportPath("  "); err == nil {
+	if _, err := resolveImportPath("  ", importRoots()); err == nil {
 		t.Error("expected an error for an empty path")
 	}
 }
@@ -411,7 +410,7 @@ func TestResolveImportPathRejectsNonTxt(t *testing.T) {
 	if err := os.WriteFile(path, []byte("TOKEN=1"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolveImportPath(path); err != ErrImportNotText {
+	if _, err := resolveImportPath(path, importRoots()); err != ErrImportNotText {
 		t.Errorf("err = %v, want ErrImportNotText", err)
 	}
 }
@@ -424,7 +423,7 @@ func TestResolveImportPathRejectsTraversal(t *testing.T) {
 		t.Skip("no home directory available")
 	}
 	traversal := filepath.Join(home, "..", "..", "..", "..", "escape.txt")
-	if _, err := resolveImportPath(traversal); err != ErrImportNotAllowed {
+	if _, err := resolveImportPath(traversal, importRoots()); err != ErrImportNotAllowed {
 		t.Errorf("err = %v, want ErrImportNotAllowed", err)
 	}
 }
@@ -439,7 +438,7 @@ func TestResolveImportPathRejectsAbsoluteOutsideRoot(t *testing.T) {
 		t.Skip("no volume to test against")
 	}
 	outside := filepath.Join(volume+string(filepath.Separator), "windows style.txt")
-	if _, err := resolveImportPath(outside); err != ErrImportNotAllowed {
+	if _, err := resolveImportPath(outside, importRoots()); err != ErrImportNotAllowed {
 		t.Errorf("err = %v, want ErrImportNotAllowed", err)
 	}
 }
@@ -449,7 +448,7 @@ func TestResolveImportPathRejectsOutsideRoot(t *testing.T) {
 	// The test binary's own directory is outside every import root.
 	exe, err := os.Executable()
 	if err == nil {
-		if _, err := resolveImportPath(exe); err == nil {
+		if _, err := resolveImportPath(exe, importRoots()); err == nil {
 			t.Error("a path outside the permitted roots should be rejected")
 		}
 	}
@@ -464,13 +463,13 @@ func TestResolveImportPathRejectsDirectory(t *testing.T) {
 	}
 	// The temp dir is not an allowed root, so a directory there is rejected on
 	// the root check first; either way it must not be readable.
-	if _, err := resolveImportPath(sub); err == nil {
+	if _, err := resolveImportPath(sub, importRoots()); err == nil {
 		t.Error("a directory should not be importable")
 	}
 }
 
 func TestResolveImportPathRejectsNUL(t *testing.T) {
-	if _, err := resolveImportPath("ok\x00.txt"); err == nil {
+	if _, err := resolveImportPath("ok\x00.txt", importRoots()); err == nil {
 		t.Error("a NUL byte in the path should be rejected")
 	}
 }
@@ -511,6 +510,12 @@ func TestChatRespondsDuringImport(t *testing.T) {
 	srv, h := newTestServer(t)
 
 	dir := t.TempDir()
+	// t.TempDir() is platform-dependent: on Linux it lives under /tmp, outside
+	// every default import root, so the sandbox rejected the fixture and the
+	// test never exercised concurrency at all. Point the allow-list at the
+	// fixture directory so this test covers concurrency, not sandbox policy.
+	srv.importRoots = []string{dir}
+
 	var sb strings.Builder
 	for i := 0; i < 600; i++ {
 		sb.WriteString("слово")
@@ -525,10 +530,12 @@ func TestChatRespondsDuringImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	importStatus := make(chan int, 1)
 	importDone := make(chan struct{})
 	go func() {
 		defer close(importDone)
-		postJSON(t, h, "/api/import", map[string]string{"path": path})
+		rec := postJSON(t, h, "/api/import", map[string]string{"path": path})
+		importStatus <- rec.Code
 	}()
 
 	// While the import runs, stats and chat must still answer promptly.
@@ -547,6 +554,11 @@ func TestChatRespondsDuringImport(t *testing.T) {
 	}
 
 	<-importDone
+	// Assert the import actually succeeded. Without this, a path rejected by
+	// the sandbox made the parameter check below fail for the wrong reason.
+	if code := <-importStatus; code != http.StatusOK {
+		t.Fatalf("import status = %d, want 200", code)
+	}
 	if srv.Brain().CountParameters() == 0 {
 		t.Error("import produced no parameters")
 	}

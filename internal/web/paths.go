@@ -68,13 +68,13 @@ var (
 	ErrImportNotRegular = errors.New("not a regular file")
 )
 
-// resolveImportPath validates a user supplied import path and returns the
-// cleaned absolute path.
+// resolveImportPath validates a user supplied import path against the given
+// allow-list of roots and returns the cleaned absolute path.
 //
 // Checks applied, in order: non-empty, no NUL byte, absolute-able, .txt
 // extension, symlink-free resolution, located inside an allowed root, and a
 // regular file.
-func resolveImportPath(raw string) (string, error) {
+func resolveImportPath(raw string, roots []string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", errors.New("empty path")
@@ -101,7 +101,7 @@ func resolveImportPath(raw string) (string, error) {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
 
-	if !withinAnyRoot(abs, importRoots()) {
+	if !withinAnyRoot(abs, roots) {
 		return "", ErrImportNotAllowed
 	}
 

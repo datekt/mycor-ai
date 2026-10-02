@@ -201,6 +201,11 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "ok"})
 }
 
+// resolveImportPath validates a path against this server's allow-list.
+func (s *Server) resolveImportPath(raw string) (string, error) {
+	return resolveImportPath(raw, s.importRoots)
+}
+
 // handleImport trains the brain from a text file chosen by the user.
 //
 // The previous handler accepted any absolute path from the request body, which
@@ -212,7 +217,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(w, r, &req); err != nil {
 		return
 	}
-	path, err := resolveImportPath(req.Path)
+	path, err := s.resolveImportPath(req.Path)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
