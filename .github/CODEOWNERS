@@ -2,7 +2,6 @@
 
 /internal/engine/    @datekt
 /internal/web/       @datekt
-/internal/cli/       @datekt
 /internal/config/    @datekt
 /internal/i18n/      @datekt
 /internal/importer/  @datekt

@@ -1,94 +1,53 @@
+/*
+Package i18n tracks the active user interface language.
+
+The message catalogues used to live here, written in Go and formatted with
+Printf. They were only ever consumed by the terminal REPL, which no longer
+exists; the browser client now carries its own translations in
+internal/web/static/app.js and remembers the choice in localStorage.
+
+What remains is the small piece of server state the API still needs: the
+current language, reported in /api/stats and settable through /api/lang.
+
+Access is guarded by a mutex because handlers run concurrently.
+*/
 package i18n
 
+import "sync"
+
+// Lang is a supported interface language.
 type Lang string
 
+// Supported languages.
 const (
 	EN Lang = "en"
 	RU Lang = "ru"
 )
 
-type Messages struct {
-	YouRole          string
-	AIRole           string
-	TeacherRole      string
-	YouPrompt        string
-	AI               string
-	Thoughts         string
-	IdleThought      string
-	CorrectAnswer    string
-	BrainLoaded      string
-	BrainEmpty       string
-	BrainLoadedInfo  string
-	ThinkingEnabled  string
-	SessionReset     string
-	HelpHeader       string
-	HelpHelp         string
-	HelpStats        string
-	HelpHistory      string
-	HelpUndo         string
-	HelpReset        string
-	HelpTemp         string
-	HelpLR           string
-	HelpMomentum     string
-	HelpImport       string
-	HelpSelf         string
-	HelpLang         string
-	HelpIdle         string
-	HelpExit         string
-	HelpThinkingNote string
-	HistoryEmpty     string
-	HistoryHeader    string
-	UndoOK           string
-	UndoFail         string
-	ResetOK          string
-	ResetFail        string
-	TempRange        string
-	TempOK           string
-	LRRange          string
-	LROK             string
-	MomentumRange    string
-	MomentumOK       string
-	ImportReading    string
-	ImportOK         string
-	ImportFail       string
-	ImportUsage      string
-	StatsHeader      string
-	StatsThinking    string
-	StatsNoThinking  string
-	StatsRecent      string
-	StatsNoRecent    string
-	Synapse          string
-	SelfHeader       string
-	SelfMirror       string
-	SelfSeed         string
-	SaveFail         string
-	LangChanged      string
-	LangUsage        string
-	IdleOn           string
-	IdleOff          string
-	IdleUsage        string
-	LossLine         string
-	LangSelect       string
-	LangChoice       string
-}
+// Valid reports whether l is a supported language.
+func Valid(l Lang) bool { return l == EN || l == RU }
 
-var current = EN
+var (
+	mu      sync.RWMutex
+	current = EN
+)
 
-func Init(l Lang) {
-	current = l
-}
+// Init sets the initial language, ignoring unsupported values.
+func Init(l Lang) { Set(l) }
 
+// Set changes the active language, ignoring unsupported values.
 func Set(l Lang) {
+	if !Valid(l) {
+		return
+	}
+	mu.Lock()
+	defer mu.Unlock()
 	current = l
 }
 
+// Current returns the active language.
 func Current() Lang {
+	mu.RLock()
+	defer mu.RUnlock()
 	return current
-}
-
-func M() Messages {
-	if current == RU {
-		return ru
-	}
-	return en
 }
