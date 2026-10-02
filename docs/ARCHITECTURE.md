@@ -4,13 +4,14 @@ MYCOR is a pure-Go, zero-dependency language model with a Markov-style
 N-gram architecture. This document describes how the engine is put together
 and where each responsibility lives.
 
-> **v5.0 update:** the entry point moved from a terminal REPL to a local
-> HTTP server with an embedded web UI. The persistence layer switched
-> from JSON to `encoding/gob` (with transparent JSON fallback), and the
-> fixed bigram context became adaptive N-gram. The trained brain now lives
-> in the operating system's per-user configuration directory instead of
-> next to the executable. The core architecture — global brain, dynamic
-> backoff, thinking mode, snapshot undo — is unchanged.
+> **v6.0 update:** the architecture moved from package-level globals to a
+> `Brain` value with fine-grained locking, and the global request mutex that
+> made the server single-threaded is gone. Weight vectors are sparse, so adding
+> a word is O(1) instead of rewriting every context; Top-K/Top-P use bounded
+> selection instead of sorting the whole vocabulary; undo journals only the
+> contexts a step touched; and persistence is debounced rather than written
+> synchronously on every training step. The brain file gained an explicit magic
+> header, and the legacy terminal REPL was removed.
 
 ## High-level picture
 
@@ -31,9 +32,10 @@ and where each responsibility lives.
                         |  config/    |
                         +-------------+
 
-`cmd/mycor/main.go` calls `web.Run()`. The web layer is the only entry
-point in v5.0. `internal/cli/` still exists but is not built by default
-and is considered legacy.
+`cmd/mycor/main.go` calls `web.Run(ctx)`. The web layer is the only entry
+point. The terminal REPL that shipped through v4.x was removed in v6.0: nothing
+referenced it, and keeping a second, untested code path over the engine API
+invited exactly the drift this release set out to remove.
 
 ## Package responsibilities
 
@@ -42,23 +44,38 @@ and is considered legacy.
 The HTTP server, the embedded single-page interface, and the platform
 path resolution for the trained brain. Contains:
 
-| File                | Responsibility                                       |
-| ------------------- | ---------------------------------------------------- |
-| `server.go`         | `Run`, route registration, JSON handlers             |
-| `paths.go`          | `resolveBrainPath`, user config directory lookup     |
-| `static/index.html` | The entire UI, embedded via `//go:embed`             |
+| File                   | Responsibility                                          |
+| ---------------------- | ------------------------------------------------------- |
+| `server.go`            | `Server`, `Run`, routing, shutdown, persistence         |
+| `handlers.go`          | JSON handlers                                          |
+| `saver.go`             | Debounced background persistence                       |
+| `paths.go`             | data paths, import path sandboxing                     |
+| `server_test.go`       | Handler, security and concurrency tests                |
+| `static/index.html`    | UI markup, embedded via `//go:embed`                   |
+| `static/app.js`        | UI logic, client-side i18n                             |
 
-`Run` resolves the brain path from the OS user configuration directory,
-loads the brain, binds to `127.0.0.1:0` (OS-assigned port), prints the
-URL, opens the user's default browser, and serves requests until
-interrupted. Every handler locks a single package-level mutex before
-touching engine state, so the engine itself can remain non-thread-safe.
+`Run` resolves the data paths from the OS user configuration directory,
+loads the brain and the configuration, binds to `127.0.0.1:0` (OS-assigned
+port), prints the URL, opens the user's default browser, and serves until the
+context is cancelled.
 
-The brain path is stored in a package-level variable so that all handlers
-address the same file. On startup it is resolved by `resolveBrainPath`,
-which calls `os.UserConfigDir` and creates a `MYCOR` subdirectory if
-needed. If the config directory cannot be resolved, `Run` falls back to
-`history.json` in the current working directory and prints a warning.
+**There is no package-level mutex.** This is the central design change of
+v6.0. Previously every handler took one global mutex before touching engine
+state, which serialised the whole application: a single long import blocked
+every chat request, and the process was effectively single-threaded. Now:
+
+- The brain guards its own state with a `sync.RWMutex` (`internal/engine`).
+- The idle clock uses its own small mutex.
+- Handlers touch only what they need and hold no lock across I/O.
+
+The result is that chat, statistics and configuration stay responsive while an
+import is running. Persistence is likewise asynchronous: handlers call
+`saver.mark()`, and a background debouncer writes at most every few seconds.
+`/api/save` forces an immediate write, and shutdown flushes.
+
+Request bodies are capped (`maxBodyBytes`), import paths are validated against
+an allow-list of directories, and shutdown drains in-flight requests before
+persisting.
 
 ### `internal/engine`
 
@@ -66,46 +83,62 @@ The heart of the project. Subdivided into focused files:
 
 | File              | Responsibility                                                |
 | ----------------- | ------------------------------------------------------------- |
-| `engine.go`       | Public façade, `InitEngine`, `ContextWeightSize`               |
-| `model.go`        | Global state, `BrainModel`, `RegisterWord`, backup/undo        |
+| `engine.go`       | `Brain` type, locking policy, `Stats`, context width          |
+| `model.go`        | Vocabulary, sparse weights, undo journal, `CountParameters`  |
 | `tokenizer.go`    | `Tokenize`, `JoinWords`, emoticon matching, punctuation        |
-| `backoff.go`      | `backoffChain`, `sampleNextIndex`, `softmaxBase`, Top-K/Top-P  |
-| `train.go`        | `Train`, `TrainBatch`, `train`, `buildContext`                 |
-| `generate.go`     | `generate`, `GenerateResponse`, `GenerateIdleThought`          |
-| `thinking.go`     | `think`, `Think`, `LastThoughts`                               |
+| `backoff.go`      | `MakeContextKey`, `backoffChain`, `softmaxSparse`, renormalise|
+| `sampling.go`     | Bounded Top-K selection, Top-P narrowing, `sampleNextIndex`   |
+| `train.go`        | `Train`, `TrainBatch`, `trainStep`, `buildContext`            |
+| `generate.go`     | `GenerateResponse`, `GenerateIdleThought`                     |
+| `thinking.go`     | `thinkLocked`, `Think`, `LastThoughts`                        |
 | `history.go`      | `AppendHistory`, `SessionHistory`, `RecentContexts`, touching  |
-| `persistence.go`  | `SaveBrain`, `LoadBrain`, gob/JSON decoding, validation        |
+| `persistence.go`  | `Save`, `Load`, format detection, validation                  |
 
-The package keeps global mutable state. This is deliberate: the model is a
-single, process-wide brain, and the web layer treats it as such. Tests call
-`InitEngine()` between cases to isolate state.
+**No package-level mutable state.** All model state lives in a `Brain` value
+created by `NewBrain`, and every exported method is safe for concurrent use.
+Tests create their own brain instead of calling `InitEngine` between cases, so
+they can also run in parallel.
 
-### `internal/cli` (legacy)
+Two locks, with distinct jobs:
 
-The v4.x terminal REPL. It still compiles and still calls the same public
-engine API, but it is not referenced by `cmd/mycor/main.go` and its
-version strings and command surface are frozen at the v4.x shape. It is
-retained so that the REPL could be revived as a separate `cmd/mycor-cli`
-binary if needed; it should not be considered part of the v5.0 release.
+- `mu` (`sync.RWMutex`) guards the model state. Readers take `RLock`; writers
+  take `Lock`. Generation holds it for the whole reply — a reply is a handful of
+  tokens, so this is cheap.
+- `trainMu` serialises training against itself. A training call holds `trainMu`
+  for its entire duration but acquires and releases `mu` around each individual
+  step, so a multi-minute import interleaves with chat instead of blocking it.
 
-### `internal/i18n`
+Weight vectors are sparse (`map[int]float64`, keyed by vocabulary index) with
+index 0 reserved for `<unk>`. Two consequences:
 
-Two message packs (`en`, `ru`) behind a `Messages` struct. `Set(Lang)`
-selects the active pack. `M()` returns the current pack. The web layer
-uses `Current()` only to report the current language in `/api/stats`; all
-user-visible strings in the browser are hardcoded in `index.html`.
+- Adding a word to the vocabulary is O(1). The dense layout had to rewrite
+  every existing context vector on each new word, making vocabulary growth
+  quadratic.
+- An undo only has to snapshot the contexts a step actually touched, instead of
+  copying the entire model on every training call.
 
 ### `internal/importer`
 
 Bulk TXT trainer. Reads the file line by line, pairs consecutive non-empty
-lines, and calls `engine.TrainBatch` for each pair. No backup is created,
-so the **Undo** button cannot reverse a batch import — this is intentional.
+lines, and calls `Brain.TrainBatch` for each pair. No undo point is created, so
+the **Undo** button cannot reverse a batch import — this is intentional.
+
+Progress is reported through a callback rather than printed, and the brain is
+saved once at the end instead of after every line.
 
 ### `internal/config`
 
-A flat bag of tunables. No functions, no methods beyond `Reset`. The web
-layer writes to them directly when the user moves a slider or clicks a
-button. The engine reads them on every training and generation step.
+A `Config` struct behind a package-level `RWMutex`. Readers call `Get` for a
+cheap snapshot; writers go through `Set` or `SetField`, which validate and clamp
+before publishing. The engine reads the snapshot on every step, so slider
+changes still take effect immediately, without a data race.
+
+`Save`/`Load` persist the configuration as JSON next to the brain, which is why
+slider positions survive a restart. Previously every tunable was a bare package
+variable reset to its default on each launch.
+
+Tunables that used to be hidden constants in the engine — thinking steps, the
+vocabulary threshold for thinking, the history limits — are configured here too.
 
 ## Data flow
 
@@ -145,7 +178,7 @@ button. The engine reads them on every training and generation step.
     Tokenize
         |
         v
-    think(prompt) if vocab >= MinVocabForThinking
+    think(prompt) if vocab >= MinVocabThinking
         |
         v
     for i in 0..maxLen:
@@ -154,7 +187,7 @@ button. The engine reads them on every training and generation step.
         if no context found:
             random vocabulary pick
         else:
-            softmax -> Top-K -> Top-P -> renormalize -> sample
+            softmax -> Top-K (bounded heap) -> Top-P -> sample
         append word, shift window
         stop on . ? !
         |
@@ -163,58 +196,73 @@ button. The engine reads them on every training and generation step.
 
 ### Persistence
 
-`SaveBrain` serializes the vocabulary, weights, and velocity with
-`encoding/gob`. The stream is written to `<path>.tmp` and then atomically
-renamed. Files are smaller and load faster than the v4.x JSON format.
+`Save` serializes the vocabulary, weights, and velocity with `encoding/gob`,
+prefixed with a `MYCOR-BRAIN\0` magic header. The stream is written to
+`<path>.tmp` and then atomically renamed.
 
-`LoadBrain` calls `decodeBrain`, which inspects the first byte:
+`Load` calls `decodeBrain`, which identifies the format explicitly rather than
+sniffing the first byte:
 
-- `{` — treated as legacy JSON, parsed with `encoding/json`.
-- Anything else — treated as a gob stream.
+1. The magic header — a gob stream written by v6.0.
+2. Otherwise leading whitespace and a UTF-8 BOM are stripped; a leading `{`
+   means legacy JSON, which also accepts the old dense weight arrays.
+3. Anything else is decoded as gob, for streams written before the header
+   existed.
+
+The old probe tested `data[0] == '{'` directly, so a JSON file beginning with a
+space or a newline was misread as gob and refused to load.
 
 Both paths populate the same `BrainModel`. After decoding, validation runs:
 
 1. Vocabulary is non-empty.
 2. No empty strings.
 3. No duplicate words.
-4. If `<unk>` is missing at index 0, it is inserted and every weight
-   vector is shifted right with a zero at index 0.
-5. Every weight vector is resized to `len(Vocabulary)`.
-6. Every velocity vector is resized to match its weight vector, or
-   initialized to zeros.
+4. `<unk>` occupies index 0 exactly once. If it appears elsewhere in the stored
+   vocabulary it is moved to the front rather than prepended a second time —
+   previously such a file loaded with two `<unk>` entries and a wordв†’index map
+   pointing at the wrong slot for every word after it.
+5. Weight indices outside the vocabulary, index 0, and NaN values are dropped.
+6. Every context gets a velocity vector.
 
-Failures leave the previous in-memory state untouched.
+Failures leave the previous in-memory state untouched: the new model is fully
+validated before anything is installed.
 
 The brain path itself is resolved by `internal/web/paths.go` via
-`os.UserConfigDir()`. The engine never decides where to store the file —
-it just writes to whatever path the caller passes to `SaveBrain` and reads
-from whatever path the caller passes to `LoadBrain`.
+`os.UserConfigDir()`. The engine never decides where to store the file — it just
+writes to whatever path the caller passes to `Save` and reads from whatever path
+the caller passes to `Load`.
 
 ## State lifecycle
 
-    web.Run
+    web.Run(ctx)
         |
         v
-    resolveBrainPath -> brainFile (package variable in internal/web)
+    resolveDataPaths -> brainFile, configFile
         |
         v
-    InitEngine
+    config.Load(configFile)
+    brain.Load(brainFile)  (optional; starts empty if absent)
         |
         v
-    LoadBrain(brainFile) (optional)
+    saver.start(ctx)  ---> background: mark() -> debounced persist
         |
-        v
-    +--> Train / TrainBatch --> SaveBackup --> train --> mutation
-    |                                                 |
-    |                                                 v
-    |                                             SaveBrain(brainFile)
-    |
-    +--> UndoLastTrain --> restore from backup
+        +--> Train --> beginUndo() --> per-step locked mutation
+        |                                       |
+        |                                       v
+        |                                  saver.mark()
+        |
+        +--> UndoLastTrain --> restore journalled contexts and vocabulary
+        |
+        +--> Reset --> brain.Reset() + config.Reset() + persist
 
-The backup is a shallow copy of the current vocabulary, index map, weights
-and velocity. Only the latest `Train` call can be undone. `TrainBatch`
-deliberately does not create a backup, so a batch import cannot be rolled
-back with a single click.
+Undo uses an undo journal: `Train` records a copy of each context vector the
+first time that step touches it, plus any words the step registered. Reverting
+restores those entries and drops the new words. Copying the whole model, as the
+previous backup did, cost O(vocabulary * contexts) on every training call; the
+journal costs O(entries actually modified).
+
+Only the latest `Train` call can be undone. `TrainBatch` deliberately does not
+create an undo point, so a batch import cannot be rolled back with one click.
 
 `InitEngine` clears everything except the on-disk brain:
 
@@ -242,23 +290,24 @@ back with a single click.
 
 ## Concurrency
 
-The engine is not thread-safe. The web layer wraps every handler in a
-package-level `sync.Mutex`, so all engine mutations and reads happen
-under one lock. The HTTP server itself runs on many goroutines, but they
-queue up on the mutex before entering the engine.
+Every exported engine method is safe for concurrent use. State lives in a
+`Brain` value guarded by a `sync.RWMutex`; training additionally serialises
+against itself with a second mutex so two training requests cannot interleave.
 
-The idle polling endpoint (`GET /api/idle`) shares the same lock and the
-same `lastActivity` timestamp as chat and training. This is intentional:
-idle thoughts never race with user input.
+The lock is deliberately fine-grained. Training holds `trainMu` for the whole
+call but takes and releases the state lock once per token step, so a long import
+does not lock out chat. The idle clock has its own lock. Handlers hold no lock
+across file I/O.
 
-The `brainFile` variable is written once during `Run`, before the HTTP
-server starts listening, and is only read afterwards. No lock is required
-for it.
+`TestChatRespondsDuringImport` in `internal/web` is the regression test for
+this: it starts an import and asserts the server keeps answering other
+requests while it runs. `TestConcurrentChatAndTraining` exercises the engine
+directly; run the suite with `-race` to check it.
 
 ## What is intentionally missing
 
-- No context cancellation. Training and generation are fast enough.
 - No streaming output. Answers are returned whole.
 - No file locking on the brain file. Single-user desktop assumption.
+- No cross-process locking; two instances would race on the brain file.
 - No authentication. The server binds to `127.0.0.1` on a random port.
 - No plugin system. The engine is small enough to modify directly.

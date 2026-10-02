@@ -19,5 +19,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: 'Thanks for contributing to MYCOR! If you want to share your own trained character file `history.json`, attach it directly in this thread so other people can test it.'
+              body: 'Thanks for contributing to MYCOR! If you want to share your own trained character file `brain.gob`, attach it directly in this thread so other people can test it.'
             })

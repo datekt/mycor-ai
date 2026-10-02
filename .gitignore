@@ -1,4 +1,9 @@
+# Trained model and runtime configuration (kept in the per-user config dir,
+# listed here so a stray copy in the repo is never committed by accident).
 history.json
+brain.gob
+config.json
+
 *.exe
 bin/
 repomix-output.xml

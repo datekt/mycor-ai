@@ -2,11 +2,11 @@
   <img src="assets/mycor-banner.jpeg" alt="MYCOR AI Banner" width="100%">
 </p>
 
-# 🧠 MYCOR — v5.0
+# 🧠 MYCOR — v6.0
 
-> **My Core. Zero Dependencies. Pure Go. Web UI in one .exe. Top-K / Top-P. Adaptive N-gram. Binary weights.**
+> **My Core. Zero Dependencies. Pure Go. Web UI in one .exe. Top-K / Top-P. Adaptive N-gram. Sparse weights.**
 
-**MYCOR** is a completely "empty" local language model written in pure **Go 1.27.1**, built from scratch without any third-party frameworks, Python, or CGO. Starting with v5.0 it ships as a single self-contained executable that opens a local web interface in your default browser.
+**MYCOR** is a completely "empty" local language model written in pure **Go 1.27.1**, built from scratch without any third-party frameworks, Python, or CGO. It ships as a single self-contained executable that opens a local web interface in your default browser.
 
 In an era of terabyte-scale corporate black boxes, **MYCOR** returns control to the developer. It is a digital sandbox and canvas whose character you shape entirely yourself.
 
@@ -20,43 +20,71 @@ On first launch, MYCOR is a "blank slate" (Tabula Rasa). To any of your requests
 
 ---
 
-## 🆕 What's new in v5.0
+## 🆕 What's new in v6.0
 
-v5.0 turns MYCOR from a terminal REPL into a self-contained desktop application with a browser UI, and upgrades the sampler and the persistence layer.
+v6.0 is an architecture and correctness release. The headline change is that the
+server is no longer single-threaded behind one global mutex.
 
-### Desktop application
+### Concurrency
 
-- 🖥️ **Single `.exe`, no Wails, no Electron.** `cmd/mycor/main.go` calls `internal/web.Run()`, which binds `net/http` to `127.0.0.1` on an OS-assigned port and opens the user's default browser via `rundll32` / `open` / `xdg-open`.
-- 📦 **Embedded UI.** The entire single-page frontend lives in `internal/web/static/index.html` and is compiled into the binary with `//go:embed`.
-- 🎛️ **Live sliders.** Temperature, Top-K, Top-P, Learning Rate, Momentum, and Context Size are adjustable from the sidebar and applied to the engine on the next training or generation step.
-- 📊 **Stats panel** with vocabulary size, parameter count, thinking-mode indicator, and recent active contexts.
-- 🗂️ **Clean executable folder.** The trained brain is stored in the OS user configuration directory (see below), not next to the `.exe`.
+- 🔓 **No global request mutex.** Model state moved from package-level variables
+  into a `Brain` value guarded by a `sync.RWMutex`. The web layer no longer
+  serialises every request behind a single lock.
+- 💬 **Chat during import.** A long bulk import used to block every other
+  request until it finished. Training now holds its own mutex for the duration
+  but takes the state lock one token step at a time, so the chat stays
+  responsive. `TestChatRespondsDuringImport` guards this.
+- 🛑 **Graceful shutdown.** `Ctrl+C` or closing the console drains in-flight
+  requests and flushes the brain instead of killing the process mid-write.
 
-### Smarter sampling
+### Performance
 
-- 🔝 **Top-K filtering.** Keep only the K most likely tokens before sampling.
-- 🌡️ **Top-P (nucleus) sampling.** Keep the smallest set of tokens whose cumulative probability exceeds P.
-- 🔢 **Repetition penalty** is applied before Top-K/Top-P, so the filter operates on the already-adjusted distribution.
+- 🧹 **Sparse weights.** Weight vectors are `map[int]float64` keyed by
+  vocabulary index. Adding a word no longer rewrites every context vector, which
+  made vocabulary growth quadratic; it is now O(1).
+- 💾 **Journal-based undo.** Undo records only the contexts a training step
+  actually touched instead of copying the whole model on every call.
+- ⚡ **Bounded Top-K / Top-P.** Sampling selects the top K with a heap and then
+  narrows to the nucleus, instead of sorting the entire vocabulary per token.
+- 🕒 **Debounced saving.** Training marks the state dirty and a background
+  saver writes it; it no longer serialises the entire brain on every keystroke.
+  `/api/save` forces an immediate write.
 
-### Adaptive N-gram context
+### Correctness and safety
 
-- 📐 **Context Size is now runtime-configurable** (1 to 5 words). `backoffChain` was rewritten for arbitrary N: for a window of length N it emits the full context, then every `keepLast`/`keepFirst` mask at level N-1 down to 1, then the fully-masked `<unk>` context.
-- 🔁 **Backward compatible.** For N=2 the chain is identical to v4.x — existing trained brains behave the same.
+- 🐛 **`<unk>` handling fixed.** A brain file that stored `<unk>` somewhere other
+  than the front used to load with a duplicate token and a corrupted
+  word→index map. It is now normalised to exactly one `<unk>` at index 0.
+- 📜 **Explicit file format.** Brains are written with a `MYCOR-BRAIN` magic
+  header instead of relying on a first-byte sniff, which mis-read JSON files
+  starting with whitespace or a BOM.
+- 🎲 **Seeded randomness.** Sampling and weight init use a seeded RNG instead
+  of the global `math/rand`, which produced identical output across runs.
+- 🚧 **Request limits.** Request bodies are size-capped.
+- 🔒 **Import sandboxing.** `/api/import` accepted any path the client sent,
+  letting a request that reached the server read arbitrary files. Paths are now
+  validated against an allow-list of directories and must be `.txt`.
+- ❌ **No swallowed errors.** Failed saves are reported to the client instead
+  of discarded.
 
-### Faster persistence
+### Frontend
 
-- ⚡ **`encoding/gob` weights.** `SaveBrain` writes a gob stream to `<path>.tmp` and atomically renames it. Files are smaller and load noticeably faster than JSON.
-- 🔄 **Transparent fallback.** `decodeBrain` inspects the first byte: `{` means old JSON, anything else is treated as gob. All v3/v4 brains load without migration.
-- 🧪 **`modelVersion` bumped to 5**, but the brain format is unchanged on disk apart from the encoding.
+- 🌐 **Client-side i18n.** The UI translates fully in both languages.
+- 🐢 **Debounced sliders.** Dragging a slider sends one request, not dozens.
+- 🧹 **Reset clears everything.** Chat, teacher panel and sliders are reset
+  along with the model.
+- ↩️ **Undo re-syncs history.** The transcript is re-read from the server.
+- 🔁 **Session restore.** Reloading the page restores the conversation.
 
-### Kept from v4.5
+### Kept from v5.0
 
-- Hardened `softmaxBase` with uniform fallback on degenerate input.
-- Unicode-aware tokenizer (em dash, en dash, ellipsis, typographic quotes).
-- Idle thoughts never seed on `<unk>`.
-- `ContextWeightSize` as the only read accessor for the weight map.
-- `/reset` restores configuration defaults.
-- Arbitrarily long lines in the TXT importer.
+- Embedded web UI served from `internal/web/static`, compiled in with `//go:embed`.
+- Live sliders for temperature, Top-K, Top-P, learning rate, momentum, context
+  size and thinking steps.
+- Adaptive N-gram context window (1 to 5 words) with dynamic backoff.
+- Idle thoughts that never seed on `<unk>`.
+- Unicode-aware tokenizer and arbitrarily long lines in the TXT importer.
+- Brain and configuration stored in the OS user configuration directory.
 
 ---
 
@@ -159,36 +187,41 @@ All endpoints return JSON. The UI is a thin client over them, so you can script 
 
 The trained brain is stored in the operating system's per-user configuration directory, so the folder where you keep `mycor.exe` stays clean:
 
-- **Windows:** `%AppData%\MYCOR\history.json`
-- **Linux:** `~/.config/MYCOR/history.json`
-- **macOS:** `~/Library/Application Support/MYCOR/history.json`
+- **Windows:** `%AppData%\MYCOR\brain.gob`
+- **Linux:** `~/.config/MYCOR/brain.gob`
+- **macOS:** `~/Library/Application Support/MYCOR/brain.gob`
 
-The exact path is printed in the terminal on every launch, in the line `Brain file: ...`. If the config directory cannot be resolved (rare, e.g. in a stripped-down container without `HOME`), the program falls back to `history.json` next to the executable.
+The exact path is printed in the terminal on every launch, in the line
+`Brain file: ...`.
 
 **Saved to that file and survives restart:**
 - Vocabulary.
 - Weight matrix.
 - Optimizer state (velocity).
 
+Runtime configuration lives beside it in `config.json` in the same directory,
+so slider positions survive a restart too. Delete either file to start over.
+
 **Reset on every launch:**
 - Session dialogue history.
 - Recent active contexts list.
 - Last "thoughts" of the network.
-- Backup copy for Undo.
 
 **Reset only by the Reset button:**
 - Runtime configuration.
 - The brain file on disk (a fresh empty brain is written in its place).
 - The in-memory brain.
 
-To back up or share your trained character, copy `history.json` out of the folder above. To load someone else's brain, drop their file into the same folder before launching MYCOR — the app will pick it up on startup.
+To back up or share your trained character, copy `brain.gob` out of the folder
+above. To load someone else's brain, drop their file into the same folder before
+launching MYCOR — the app will pick it up on startup.
 
 ---
 
 ## 💭 How Thinking Mode Works
 
-1. **Activation threshold:** `MinVocabForThinking = 10`.
-2. **Internal generation:** The engine performs `thinkingSteps = 4` sampling steps from the same weight matrix.
+1. **Activation threshold:** `MinVocabThinking` (default 10).
+2. **Internal generation:** The engine performs `ThinkingSteps` (default 4, configurable in the UI) sampling steps from the same weight matrix.
 3. **Answer context:** The resulting thought becomes a prefix to the prompt, and the final answer is generated from the extended context.
 4. **Transparency:** The thought line is shown in the chat above the answer.
 
@@ -257,7 +290,8 @@ Generation uses:
 - [x] v4.4 — Punctuation/emoticon tokens, Dynamic Backoff, Idle Thinking, bilingual UI.
 - [x] v4.5 — Hardening: encapsulation, Unicode tokenizer, safe softmax, config reset.
 - [x] v5.0 — Desktop edition: embedded web UI, Top-K/Top-P, adaptive N-gram, gob weights, brain in user config dir.
-- [ ] v5.1 (planned) — Drag-and-drop TXT import, loss chart, named brains, streaming answers.
+- [x] v6.0 — Concurrency rewrite (Brain + RWMutex, no global mutex), sparse weights, journaled undo, debounced saves, import sandboxing, graceful shutdown, client i18n.
+- [ ] v6.1 (planned) — Drag-and-drop TXT import, loss chart, named brains, streaming answers.
 
 ## 📄 License
 

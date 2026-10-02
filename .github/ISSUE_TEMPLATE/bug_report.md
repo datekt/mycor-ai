@@ -30,14 +30,14 @@ What actually happened. If the browser console shows an error, paste it here. If
 - Go version (if built from source): [output of `go version`]
 - MYCOR version: [e.g. 5.0]
 - Vocabulary size: [shown in the sidebar under "Statistics"]
-- Brain path: [the `Brain file:` line printed by the executable on startup, e.g. `C:\Users\you\AppData\Roaming\MYCOR\history.json`]
+- Brain path: [the `Brain file:` line printed by the executable on startup, e.g. `C:\Users\you\AppData\Roaming\MYCOR\brain.gob`]
 
 ## History file
 
-If the bug depends on your trained brain, attach `history.json` (or a minimal reproducible version of it). The file lives in the user configuration directory:
+If the bug depends on your trained brain, attach `brain.gob` (or a minimal reproducible version of it). The file lives in the user configuration directory:
 
-- **Windows:** `%AppData%\MYCOR\history.json`
-- **Linux:** `~/.config/MYCOR/history.json`
-- **macOS:** `~/Library/Application Support/MYCOR/history.json`
+- **Windows:** `%AppData%\MYCOR\brain.gob`
+- **Linux:** `~/.config/MYCOR/brain.gob`
+- **macOS:** `~/Library/Application Support/MYCOR/brain.gob`
 
 The exact path is printed in the terminal on every launch.

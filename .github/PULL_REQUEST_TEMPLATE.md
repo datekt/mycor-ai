@@ -25,7 +25,7 @@ Closes #
 - [ ] Docs updated if behavior or commands changed
 - [ ] `README.md` updated if user-facing behavior changed
 - [ ] New behavior is covered by tests
-- [ ] `history.json` is not committed
+- [ ] `brain.gob` is not committed
 
 ## Notes for reviewers
 

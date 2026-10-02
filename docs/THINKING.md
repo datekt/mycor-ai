@@ -81,8 +81,8 @@ not the answer itself.
 
 ### Reset
 
-`InitEngine` clears `lastThoughts`. `LoadBrain` also clears it, so a fresh
-session never inherits the previous session's inner voice.
+`Reset` clears `lastThoughts`. `Load` also clears it, so a fresh session never
+inherits the previous session's inner voice.
 
 ## Idle Thinking
 
@@ -164,9 +164,9 @@ still appended above the input field and does not move focus.
 
 - `TestThinkRequiresVocabulary` — thinking is skipped below the threshold.
 - `TestThinkAfterEnoughTraining` — thoughts are produced above the threshold.
-- `TestThinkingResetOnInit` — `InitEngine` clears `lastThoughts`.
-- `TestGenerateIdleThoughtEmpty` — idle returns empty with a small vocab.
-- `TestGenerateIdleThoughtWithVocab` — idle produces something above the threshold.
+- `TestThinkingStepsAreConfigurable` — the step count is a runtime setting.
+- `TestThinkingResetOnReset` — `Reset` clears `lastThoughts`.
+- `TestGenerateIdleThoughtEmptyForSmallVocab` — idle returns empty below the threshold.
 - `TestGenerateIdleThoughtNeverSeedsUnk` — fifty idle cycles assert `<unk>`
   never appears in the output.
 

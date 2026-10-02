@@ -25,10 +25,10 @@ contribute code, docs, and bug reports.
 ## Project layout
 
 - `cmd/mycor/` — main entry point
-- `internal/cli/` — REPL, commands, idle ticker, input reader
-- `internal/config/` — runtime configuration
-- `internal/engine/` — tokenizer, model, training, generation, backoff, thinking, persistence
-- `internal/i18n/` — English and Russian message packs
+- `internal/config/` — runtime configuration (validated, persisted, mutex-guarded)
+- `internal/engine/` — tokenizer, model, training, generation, backoff, sampling, thinking, persistence
+- `internal/i18n/` — active UI language state
+- `internal/web/` — HTTP API, debounced persistence, import path sandboxing, static assets
 - `internal/importer/` — bulk TXT import
 - `testdata/` — fixtures for tests
 - `docs/` — long-form documentation
@@ -70,7 +70,7 @@ Use conventional commit prefixes:
 ## Reporting bugs
 
 Use the bug report template in `.github/ISSUE_TEMPLATE/bug_report.md`.
-Include your OS, Go version, MYCOR version, and `history.json` if the bug
+Include your OS, Go version, MYCOR version, and `brain.gob` if the bug
 depends on the trained state.
 
 ## Security

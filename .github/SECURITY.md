@@ -28,7 +28,7 @@ MYCOR runs entirely locally, binds only to 127.0.0.1 on an OS-assigned
 port, and has zero third-party dependencies. The most likely attack
 surfaces are:
 
-- Malicious `history.json` files placed in the user configuration directory
+- Malicious `brain.gob` files placed in the user configuration directory
   (`%AppData%\MYCOR\` on Windows, `~/.config/MYCOR/` on Linux/macOS,
   `~/Library/Application Support/MYCOR/` on macOS), crafted to exhaust
   memory or crash the loader.

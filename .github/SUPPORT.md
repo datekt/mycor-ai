@@ -10,7 +10,7 @@
 ## Where to ask
 
 - **GitHub Discussions** — general questions, help with training, showcase
-  your own trained `history.json`.
+  your own trained `brain.gob`.
 - **GitHub Issues** — bug reports and feature requests only. Use the
   provided templates.
 
@@ -30,7 +30,7 @@
        go version
        go env GOOS GOARCH
 
-4. If the problem is related to your trained brain, attach `history.json`.
+4. If the problem is related to your trained brain, attach `brain.gob`.
    Small files (under 1 MB) are fine to attach directly. For larger ones,
    use a gist or a file-sharing link.
 
