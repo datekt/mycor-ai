@@ -2,27 +2,29 @@ package engine
 
 import (
 	"math"
-	"math/rand"
-	"sort"
-
-	"mycor/internal/config"
+	"strings"
 )
 
+// MakeContextKey joins words into a context key. It is a pure function.
 func MakeContextKey(words ...string) string {
 	if len(words) == 0 {
 		return ""
 	}
-	out := words[0]
-	for i := 1; i < len(words); i++ {
-		out += " " + words[i]
+	var sb strings.Builder
+	for i, w := range words {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(w)
 	}
-	return out
+	return sb.String()
 }
 
-func resolveContext(words []string) []string {
+// resolveContextLocked maps unknown words to <unk>. Caller must hold b.mu.
+func (b *Brain) resolveContextLocked(words []string) []string {
 	out := make([]string, len(words))
 	for i, w := range words {
-		if _, ok := WordToIdx[w]; ok {
+		if _, ok := b.wordToIdx[w]; ok {
 			out[i] = w
 		} else {
 			out[i] = unkToken
@@ -31,6 +33,8 @@ func resolveContext(words []string) []string {
 	return out
 }
 
+// backoffChain returns the full ladder of contexts to train or query, from the
+// most specific to the all-<unk> fallback. It is a pure function.
 func backoffChain(words []string) []string {
 	if len(words) == 0 {
 		return nil
@@ -74,7 +78,12 @@ func backoffChain(words []string) []string {
 	return chain
 }
 
-func softmaxBase(logits []float64, temperature float64, usedWords map[int]bool, penalty float64) []float64 {
+// softmaxSparse converts a sparse logit vector into probabilities. Absent
+// entries have probability zero, which is exactly what makes the sparse layout
+// safe: missing mass never enters the distribution.
+//
+// The caller must hold b.mu.
+func (b *Brain) softmaxSparse(logits map[int]float64, temperature float64, used map[int]bool, penalty float64) map[int]float64 {
 	if len(logits) == 0 {
 		return nil
 	}
@@ -82,11 +91,11 @@ func softmaxBase(logits []float64, temperature float64, usedWords map[int]bool, 
 		temperature = 1.0
 	}
 
-	scaled := make([]float64, len(logits))
-	maxVal := -math.MaxFloat64
+	scaled := make(map[int]float64, len(logits))
+	maxVal := math.Inf(-1)
 	for i, v := range logits {
 		s := v / temperature
-		if usedWords != nil && usedWords[i] && penalty > 0 {
+		if used != nil && used[i] && penalty > 0 {
 			if s > 0 {
 				s /= penalty
 			} else {
@@ -101,13 +110,17 @@ func softmaxBase(logits []float64, temperature float64, usedWords map[int]bool, 
 
 	sum := 0.0
 	for i, v := range scaled {
-		scaled[i] = math.Exp(v - maxVal)
-		sum += scaled[i]
+		e := math.Exp(v - maxVal)
+		if e != e { // NaN
+			e = 0
+		}
+		scaled[i] = e
+		sum += e
 	}
-	if sum <= 0 || math.IsNaN(sum) || math.IsInf(sum, 0) {
-		uniform := make([]float64, len(scaled))
+	if sum <= 0 || math.IsInf(sum, 0) {
 		share := 1.0 / float64(len(scaled))
-		for i := range uniform {
+		uniform := make(map[int]float64, len(scaled))
+		for i := range scaled {
 			uniform[i] = share
 		}
 		return uniform
@@ -118,79 +131,8 @@ func softmaxBase(logits []float64, temperature float64, usedWords map[int]bool, 
 	return scaled
 }
 
-type probPair struct {
-	idx int
-	p   float64
-}
-
-func applyTopK(probs []float64, k int) []float64 {
-	if k <= 0 || k >= len(probs) {
-		return probs
-	}
-	pairs := make([]probPair, 0, len(probs))
-	for i, p := range probs {
-		if p > 0 {
-			pairs = append(pairs, probPair{i, p})
-		}
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].p > pairs[j].p
-	})
-	if k > len(pairs) {
-		k = len(pairs)
-	}
-	out := make([]float64, len(probs))
-	for i := 0; i < k; i++ {
-		out[pairs[i].idx] = pairs[i].p
-	}
-	return out
-}
-
-func applyTopP(probs []float64, p float64) []float64 {
-	if p <= 0 {
-		out := make([]float64, len(probs))
-		best := -1
-		bestP := 0.0
-		for i, v := range probs {
-			if v > bestP {
-				best = i
-				bestP = v
-			}
-		}
-		if best >= 0 {
-			out[best] = probs[best]
-		}
-		return out
-	}
-	if p >= 1 {
-		return probs
-	}
-	pairs := make([]probPair, 0, len(probs))
-	for i, v := range probs {
-		if v > 0 {
-			pairs = append(pairs, probPair{i, v})
-		}
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].p > pairs[j].p
-	})
-	cumulative := 0.0
-	cutoff := len(pairs)
-	for i, pr := range pairs {
-		cumulative += pr.p
-		if cumulative >= p {
-			cutoff = i + 1
-			break
-		}
-	}
-	out := make([]float64, len(probs))
-	for i := 0; i < cutoff; i++ {
-		out[pairs[i].idx] = pairs[i].p
-	}
-	return out
-}
-
-func renormalize(probs []float64) {
+// renormalize rescales a sparse probability map in place to sum to one.
+func renormalize(probs map[int]float64) {
 	sum := 0.0
 	for _, p := range probs {
 		sum += p
@@ -201,97 +143,4 @@ func renormalize(probs []float64) {
 	for i := range probs {
 		probs[i] /= sum
 	}
-}
-
-func ensureWeights(ctxKey string) ([]float64, []float64) {
-	vLen := len(Vocabulary)
-
-	w, ok := weights[ctxKey]
-	if !ok {
-		w = make([]float64, vLen)
-		for i := range w {
-			w[i] = initWeight()
-		}
-	}
-	if len(w) < vLen {
-		for i := len(w); i < vLen; i++ {
-			w = append(w, initWeight())
-		}
-	} else if len(w) > vLen {
-		w = w[:vLen]
-	}
-	weights[ctxKey] = w
-
-	vel, vok := velocity[ctxKey]
-	if !vok {
-		vel = make([]float64, vLen)
-	}
-	if len(vel) < vLen {
-		for i := len(vel); i < vLen; i++ {
-			vel = append(vel, 0)
-		}
-	} else if len(vel) > vLen {
-		vel = vel[:vLen]
-	}
-	velocity[ctxKey] = vel
-
-	return w, vel
-}
-
-func sampleNextIndex(rawContext []string, usedWords map[int]bool, temperature float64) (int, bool) {
-	context := resolveContext(rawContext)
-	chain := backoffChain(context)
-
-	var (
-		logits []float64
-		ctxKey string
-		found  bool
-	)
-	for _, key := range chain {
-		if v, ok := weights[key]; ok && len(v) > 0 {
-			logits = v
-			ctxKey = key
-			found = true
-			break
-		}
-	}
-	if !found {
-		return 0, false
-	}
-
-	touchContext(ctxKey)
-	probs := softmaxBase(logits, temperature, usedWords, config.RepetitionPenalty)
-	if len(probs) == 0 {
-		return 0, false
-	}
-
-	probs = applyTopK(probs, config.TopK)
-	probs = applyTopP(probs, config.TopP)
-	renormalize(probs)
-
-	r := rand.Float64()
-	cumulative := 0.0
-	nextIdx := -1
-	for idx, p := range probs {
-		if p <= 0 {
-			continue
-		}
-		cumulative += p
-		if r <= cumulative {
-			nextIdx = idx
-			break
-		}
-	}
-	if nextIdx < 0 {
-		for idx := len(probs) - 1; idx >= 0; idx-- {
-			if probs[idx] > 0 {
-				nextIdx = idx
-				break
-			}
-		}
-	}
-	if nextIdx < 0 || nextIdx >= len(Vocabulary) {
-		return 0, false
-	}
-	return nextIdx, true
 }

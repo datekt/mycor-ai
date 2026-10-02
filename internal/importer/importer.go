@@ -2,17 +2,21 @@
 Package importer provides bulk training from plain text files.
 
 Each pair of consecutive non-empty lines is treated as a (prompt, target)
-training example and passed to the engine with TrainBatch. No backup is
+training example and passed to the engine with TrainBatch. No undo point is
 created, so /undo cannot reverse a batch import.
 
 Input is read through bufio.Reader with ReadString so that arbitrarily long
 lines are supported without hitting bufio.Scanner's token-size limit.
+
+Progress is reported through a Progress callback rather than written straight to
+stdout, which keeps the importer testable and lets the web layer surface
+progress without spamming the server console.
 */
 package importer
 
 import (
 	"bufio"
-	"fmt"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -20,10 +24,30 @@ import (
 	"mycor/internal/engine"
 )
 
-func ImportTxtFile(filePath string, brainPath string) error {
+// Result summarises an import run.
+type Result struct {
+	Lines       int
+	Trained     int
+	Vocabulary  int
+	Parameters  int
+	AverageLoss float64
+}
+
+// Progress is called periodically with the number of examples processed so far.
+type Progress func(processed, total int)
+
+// ImportTxtFile trains the brain from a plain text file.
+//
+// The brain is saved once at the end (and through the engine's own debounced
+// saver when one is configured), never per line: writing the whole brain to
+// disk after every one of thousands of examples was the dominant cost of large
+// imports.
+func ImportTxtFile(b *engine.Brain, filePath string, brainPath string, progress Progress) (Result, error) {
+	var result Result
+
 	file, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return result, err
 	}
 	defer file.Close()
 
@@ -38,35 +62,41 @@ func ImportTxtFile(filePath string, brainPath string) error {
 			}
 		}
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			return err
+			return result, err
 		}
 	}
 
-	fmt.Printf("Reading %d lines. Starting batch scan...\n", len(lines))
+	result.Lines = len(lines)
+	if len(lines) < 2 {
+		return result, nil
+	}
 
+	total := len(lines) - 1
 	totalLoss := 0.0
-	trained := 0
-	for i := 0; i < len(lines)-1; i++ {
-		loss := engine.TrainBatch(lines[i], lines[i+1])
+	for i := 0; i < total; i++ {
+		loss := b.TrainBatch(lines[i], lines[i+1])
 		totalLoss += loss
-		trained++
-		if i%100 == 0 && i > 0 {
-			fmt.Printf("Processed %d lines...\n", i)
+		result.Trained++
+		if progress != nil && i%500 == 0 {
+			progress(i, total)
 		}
 	}
 
-	if err := engine.SaveBrain(brainPath); err != nil {
-		return err
+	if brainPath != "" {
+		if err := b.Save(brainPath); err != nil {
+			return result, err
+		}
 	}
-
-	if trained > 0 {
-		fmt.Printf("Average loss: %.4f\n", totalLoss/float64(trained))
+	if result.Trained > 0 {
+		result.AverageLoss = totalLoss / float64(result.Trained)
 	}
-	fmt.Printf("Vocabulary size: %d (thinking mode: %v)\n",
-		len(engine.Vocabulary),
-		len(engine.Vocabulary) >= engine.MinVocabForThinking)
-	return nil
+	result.Vocabulary = b.VocabularyLen()
+	result.Parameters = b.CountParameters()
+	if progress != nil {
+		progress(total, total)
+	}
+	return result, nil
 }

@@ -5,8 +5,9 @@ import (
 	"unicode/utf8"
 )
 
+// emoticonList is read-only after initialisation and therefore needs no lock.
 var emoticonList = []string{
-	":-)", ":-(", ":-d", ":-p", ":-/", ":-*", ":'-(",
+	":-)", ":-(", ":-d", ":-p", ":-/", ":-*", ":-'(",
 	":')", ":d", ":p", ":3", ":o", ":/", ":|", ":'(",
 	":)", ":(", ";-)", ";)", ";(", ":*", "^^", "<3", "o_o", "-_-",
 }
@@ -40,6 +41,8 @@ func isPunctRune(r rune) bool {
 	return false
 }
 
+// Tokenize splits text into lowercased words, punctuation and emoticons. It is
+// a pure function: no state is read or written.
 func Tokenize(text string) []string {
 	lower := strings.ToLower(text)
 	tokens := make([]string, 0, 16)
@@ -112,6 +115,8 @@ func isPunct(w string) bool {
 	return false
 }
 
+// JoinWords renders tokens back into readable text, suppressing the space
+// before punctuation. It is a pure function.
 func JoinWords(words []string) string {
 	var sb strings.Builder
 	for i, w := range words {
